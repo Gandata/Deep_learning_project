@@ -1,6 +1,6 @@
 # Work Plan — Leonardo
 
-> **Role:** Lead Engineer — Encoder Integration, MLP Architecture, Training Pipeline  
+> **Role:** Encoder Integration, MLP Architecture, Training Pipeline  
 > **Strength:** Strong PyTorch / deep learning implementation  
 > **Primary branches:** `feat/encoder-integration`, `feat/mlp-training`
 
@@ -10,7 +10,7 @@
 
 **Goal:** Concerto Small loads and produces per-point features on Colab.
 
-### Day 1–2: Environment Setup & Encoder Loading
+### Environment Setup & Encoder Loading
 - [ ] Set up the GitHub repo structure (`src/`, `configs/`, `notebooks/`, `scripts/`, `tests/`)
 - [ ] Create `requirements.txt` with pinned versions (torch, spconv-cu118, open_clip_torch, open3d, pointcept)
 - [ ] Test spconv installation on a clean Colab T4 session — **this is the highest-risk dependency**
@@ -20,14 +20,14 @@
 - [ ] Write `src/encoder.py`: minimal wrapper that loads Concerto Small and runs a forward pass on a dummy point cloud
 - [ ] Verify output shape and feature dimensionality (should be D=256 per point)
 
-### Day 3–4: Feature Extraction Pipeline
+### Feature Extraction Pipeline
 - [ ] Write `src/encoder.py` to handle real S3DIS data (coordinate with Adrian on data format)
 - [ ] Implement chunking/batching for large scenes that don't fit in VRAM
 - [ ] Extract features for 1–2 test rooms from S3DIS Area 5 → save to Drive as `.npz`
 - [ ] Verify features look reasonable (sanity check: PCA visualization of per-point features)
 - [ ] **Merge `feat/encoder-integration` → `dev`** via PR (Ricardo reviews)
 
-### Day 5: MLP Architecture Design
+### MLP Architecture Design
 - [ ] Write `src/translation_head.py`: MLP architecture
   - Input: Concerto feature dim (256)
   - Hidden layers: 2–3 layers (256 → 512 → 512 → 512)
@@ -51,7 +51,7 @@
 
 **Goal:** MLP trained on S3DIS, achieving meaningful mIoU on Area 5.
 
-### Day 6–7: Training Loop
+### Training Loop
 - [ ] Write `src/train.py`: training loop for the MLP head
   - Load pre-extracted Concerto features (`.npz` from Drive)
   - Load CLIP text embeddings for S3DIS labels
@@ -62,7 +62,7 @@
 - [ ] Write `configs/train_mlp_s3dis.yaml` with all hyperparameters
 - [ ] Write `notebooks/03_train_mlp.ipynb`: Colab notebook for training
 
-### Day 8–9: Training Runs & Iteration
+### Training Runs & Iteration
 - [ ] First training run (MSE loss, 50 epochs)
   - Target: loss decreases steadily, no NaN/Inf
   - Save `mlp_v1_mse_loss_epoch50.pth` to Drive
@@ -73,7 +73,7 @@
   - Save `mlp_v2_best_config.pth` to Drive
 - [ ] **Merge `feat/mlp-training` → `dev`** via PR
 
-### Day 10: Integration Testing
+### Integration Testing
 - [ ] End-to-end test: raw point cloud → Concerto features → MLP → CLIP query → heatmap
 - [ ] Verify the full pipeline runs on Colab without OOM
 - [ ] Help Ricardo with any evaluation issues
@@ -91,19 +91,19 @@
 
 **Goal:** Pipeline robust, demo working, presentation ready.
 
-### Day 11–12: Polycam Integration & Robustness
+### Polycam Integration & Robustness
 - [ ] Run feature extraction on Adrian's Polycam scans
 - [ ] Run MLP + CLIP query on Polycam scans — assess quality
 - [ ] If quality is poor: try feature normalization, temperature scaling, or prompt engineering
 - [ ] **(Optional) Utonia comparison:** If Ricardo is integrating Utonia, help with encoder wrapper adaptation
 
-### Day 13: Demo & Code Cleanup
+### Demo & Code Cleanup
 - [ ] Review and polish `notebooks/05_demo.ipynb` (Adrian's notebook)
 - [ ] Ensure the demo runs reliably on Colab (handle edge cases, add error messages)
 - [ ] Code cleanup: consistent docstrings, type hints, remove dead code
 - [ ] **Merge everything to `main`** via `dev` → `main` PR
 
-### Day 14–15: Presentation
+### Presentation
 - [ ] Prepare 3–4 slides for your section:
   - Concerto encoder: what it is, why frozen
   - MLP translation head: architecture, loss, training details
@@ -138,12 +138,12 @@
 
 ## Dependencies on Others
 
-- **Adrian:** S3DIS preprocessed data (need by Day 3), Polycam scans (need by Day 11)
-- **Ricardo:** Evaluation script (need by Day 8), feature extraction help
-- **Matteo:** Slide template (need by Day 13)
+- **Adrian:** S3DIS preprocessed data, Polycam scans
+- **Ricardo:** Evaluation script, feature extraction help
+- **Matteo:** Slide template
 
 ## What Others Depend on From You
 
-- **Ricardo:** Working encoder wrapper (by Day 4), trained MLP checkpoint (by Day 9)
-- **Adrian:** Feature extraction script (by Day 4), pipeline for demo (by Day 12)
-- **Matteo:** Evaluation results for visualization (by Day 9)
+- **Ricardo:** Working encoder wrapper, trained MLP checkpoint
+- **Adrian:** Feature extraction script, pipeline for demo
+- **Matteo:** Evaluation results for visualization

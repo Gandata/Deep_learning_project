@@ -13,7 +13,6 @@
 | In-the-wild Polycam demo | ⚠️ **Feasible with risks** | Medium |
 | Utonia comparison | ⚠️ **Stretch goal only** | Low–Medium |
 | 15-min presentation + demo | ✅ **Feasible** | High |
-| 3-week timeline with 4 people | ⚠️ **Tight but achievable** | Medium–High |
 
 **Bottom line:** The core project (items 1–2 + presentation) is well within reach. The in-the-wild demo has moderate risk (Polycam export quality, domain gap). Utonia should remain a strict bonus.
 

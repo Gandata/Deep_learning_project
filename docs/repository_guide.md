@@ -175,7 +175,7 @@ This automatically strips outputs from `.ipynb` files on `git add`, so you never
 
 ## 6. What NOT to Commit
 
-The `.gitignore` should exclude:
+The `.gitignore` excludes:
 
 ```gitignore
 # Data & model artifacts (live on Google Drive)
@@ -221,7 +221,7 @@ Thumbs.db
 
 ## 7. Code Style
 
-- **Python 3.10+** (Colab default)
+- **Python 3.11+** (Colab default)
 - **PEP 8** formatting — use `black` formatter if desired
 - **Type hints** encouraged for function signatures
 - **Docstrings** for all public functions (Google style)

@@ -215,8 +215,8 @@ The `notebooks/05_demo.ipynb` notebook provides an interactive demo:
 
 | Member | Role |
 |--------|------|
-| **Leonardo** | Lead engineer — encoder integration, MLP architecture, training pipeline |
 | **Ricardo** | Lead engineer — feature extraction, evaluation, Utonia comparison |
+| **Leonardo** | Encoder integration, MLP architecture, training pipeline |
 | **Adrian** | Data preparation, Polycam pipeline, demo notebook |
 | **Matteo** | Evaluation scripts, visualization, presentation & slides |
 

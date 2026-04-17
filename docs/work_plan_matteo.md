@@ -10,7 +10,7 @@
 
 **Goal:** Visualization utilities ready, presentation template created, contribution to evaluation design.
 
-### Day 1–2: Environment Setup & Research
+### Environment Setup & Research
 - [ ] Set up personal Colab environment (parallel with others)
 - [ ] Read the Concerto paper (focus on evaluation sections: Table 5, language probing)
 - [ ] Read the Utonia paper (brief overview — understand key differences from Concerto)
@@ -22,7 +22,7 @@
   - Supervised mIoU: 77.3%
   - Our MLP should land between these
 
-### Day 3–5: Visualization Utilities
+### Visualization Utilities
 - [ ] Write `src/visualize.py`:
   - `plot_point_cloud(points, colors, labels=None)` — basic 3D point cloud viewer
     - Use Plotly `scatter3d` for interactive Colab-compatible visualization
@@ -51,7 +51,7 @@
 
 **Goal:** Evaluation results beautifully visualized, presentation first draft complete.
 
-### Day 6–8: Evaluation Notebook & Figures
+### Evaluation Notebook & Figures
 - [ ] Extend `notebooks/04_evaluate.ipynb` (Ricardo creates the base version):
   - Add visualization cells that use `src/visualize.py`
   - Per-class IoU bar chart (horizontal bars, sorted by performance)
@@ -65,7 +65,7 @@
 - [ ] Work with Ricardo: as he produces evaluation results, you visualize them
   - Quick turnaround: Ricardo gives you metrics → you produce figures → Ricardo/Leonardo iterate
 
-### Day 9–10: Presentation First Draft
+### Presentation First Draft
 - [ ] Create presentation structure in Google Slides (shared with team):
   - **Slide 1:** Title + team names
   - **Slide 2:** Problem statement — what is open-vocabulary 3D search?
@@ -99,7 +99,7 @@
 
 **Goal:** All figures finalized, presentation polished, everything tested.
 
-### Day 11–12: Final Visualizations
+### Final Visualizations
 - [ ] Generate final heatmap visualizations for:
   - S3DIS Area 5 (best room, 3–4 different queries)
   - Polycam scan (same queries for comparison)
@@ -112,7 +112,7 @@
   - Shows how well the MLP separates classes in CLIP space
   - If this doesn't look good, skip it
 
-### Day 12–13: Presentation Polish
+### Presentation Polish
 - [ ] Finalize all slides with real content (coordinate with each team member)
 - [ ] Ensure consistent formatting: font sizes, colors, figure placement
 - [ ] Add speaker notes for each slide
@@ -125,7 +125,7 @@
   - "What about outdoor scenes?" → Concerto is indoor-trained, mention Utonia as future work
   - "What's the compute cost?" → Feature extraction: X min, MLP training: Y min
 
-### Day 13: Quality Assurance
+### Quality Assurance
 - [ ] **Full pipeline test**: run the entire pipeline from scratch on Colab:
   1. Clone repo
   2. Install deps
@@ -138,7 +138,7 @@
 - [ ] Check that `requirements.txt` is complete and pinned
 - [ ] **Merge everything to `main`** via `dev` → `main` PR (with team approval)
 
-### Day 14–15: Presentation Day Preparation
+### Presentation Day Preparation
 - [ ] Prepare your slides (you present the overview):
   - Problem statement (Slide 2)
   - Related work (Slide 3)
@@ -179,17 +179,17 @@
 
 ## Dependencies on Others
 
-- **Ricardo:** Evaluation metrics and results (by Day 6–8, iteratively)
-- **Leonardo:** Trained MLP checkpoint (for heatmap generation, by Day 9)
-- **Adrian:** Polycam scans (for visualization, by Day 10)
-- **All:** Slide content for their respective sections (by Day 12)
+- **Ricardo:** Evaluation metrics and results
+- **Leonardo:** Trained MLP checkpoint (for heatmap generation)
+- **Adrian:** Polycam scans (for visualization)
+- **All:** Slide content for their respective sections
 
 ## What Others Depend on From You
 
-- **Ricardo + Adrian:** Visualization utilities (by Day 5)
-- **All:** Presentation template and structure (by Day 10)
-- **All:** Final polished slides (by Day 14)
-- **All:** QA confirmation that the pipeline works (by Day 13)
+- **Ricardo + Adrian:** Visualization utilities
+- **All:** Presentation template and structure
+- **All:** Final polished slides
+- **All:** QA confirmation that the pipeline works
 
 ---
 

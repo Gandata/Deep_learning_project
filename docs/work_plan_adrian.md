@@ -10,7 +10,7 @@
 
 **Goal:** S3DIS Area 5 preprocessed and ready for feature extraction. Polycam test scan captured.
 
-### Day 1–2: S3DIS Data Acquisition
+### S3DIS Data Acquisition
 - [ ] Submit the S3DIS download request form on the [Stanford website](http://buildingparser.stanford.edu/dataset.html)
   - **Critical:** This requires manual approval and can take 24–48h. Do this FIRST.
   - Use a university email for faster approval
@@ -35,7 +35,7 @@
   - Dependency install
   - Symlink creation
 
-### Day 3–4: S3DIS Preprocessing
+### S3DIS Preprocessing
 - [ ] Download S3DIS dataset once approved → upload to Drive (`data/s3dis_raw/`)
   - **Storage concern:** S3DIS is ~14GB. If Drive free tier is insufficient:
     - Use a team member's university Google Workspace account
@@ -53,7 +53,7 @@
   - Number of rooms, number of points per room
   - Class label mapping (0=ceiling, 1=floor, ...)
 
-### Day 5: Polycam Test Capture
+### Polycam Test Capture
 - [ ] Download [Polycam](https://poly.cam/) on iOS or Android
 - [ ] Capture a test scan of an indoor scene (e.g., your room, a lab, a common area)
   - Use LiDAR mode if device supports it (iPhone Pro/iPad Pro)
@@ -80,7 +80,7 @@
 
 **Goal:** `src/dataset.py` working, demo notebook prototype ready.
 
-### Day 6–7: Dataset Loader
+### Dataset Loader
 - [ ] Write `src/dataset.py`:
   - `S3DISDataset` class: loads preprocessed rooms (points, colors, labels)
     - Returns dict: `{"points": np.array, "colors": np.array, "labels": np.array}`
@@ -95,7 +95,7 @@
 - [ ] Coordinate with Leonardo and Ricardo: confirm the interface they need
 - [ ] **Merge changes to `dev`** via PR
 
-### Day 8–9: Demo Notebook Prototype
+### Demo Notebook Prototype
 - [ ] Write `notebooks/05_demo.ipynb` (prototype):
   - Cell 1: Setup (Drive mount, repo clone, install deps)
   - Cell 2: Load a point cloud (S3DIS room or Polycam scan)
@@ -109,7 +109,7 @@
 - [ ] Test with placeholder/dummy data if real pipeline isn't ready yet
 - [ ] Make the demo **interactive**: user types a query in a text input cell
 
-### Day 10: Additional Polycam Scans (if needed)
+### Additional Polycam Scans (if needed)
 - [ ] Capture 1–2 more Polycam scans of different indoor scenes for variety
 - [ ] Process and upload to Drive
 - [ ] Test the export pipeline on different scan qualities
@@ -127,7 +127,7 @@
 
 **Goal:** Demo notebook fully working and polished. Presentation materials ready.
 
-### Day 11–12: Demo Finalization
+### Demo Finalization
 - [ ] Update `notebooks/05_demo.ipynb` with real trained MLP checkpoint (from Leonardo)
 - [ ] Test end-to-end demo on both S3DIS and Polycam scans
 - [ ] Add polish:
@@ -141,7 +141,7 @@
   - Show: loading a scene → typing a query → heatmap appears
   - Save to Drive: `presentation/demo_video.mp4`
 
-### Day 13: Demo Documentation
+### Demo Documentation
 - [ ] Write clear instructions in `notebooks/05_demo.ipynb` for anyone to reproduce:
   - What to install
   - What files to have on Drive
@@ -150,7 +150,7 @@
 - [ ] Test that someone else on the team (e.g., Matteo) can run the demo without help
 - [ ] Merge final demo to `dev` → `main`
 
-### Day 14–15: Presentation
+### Presentation
 - [ ] Prepare 2–3 slides for your section:
   - Data pipeline: S3DIS, what it is, how we preprocessed it
   - Polycam: how we captured in-the-wild scans, the export process
@@ -186,16 +186,16 @@
 
 ## Dependencies on Others
 
-- **Leonardo:** Encoder wrapper (for demo, by Day 8), trained MLP checkpoint (for demo, by Day 11)
-- **Ricardo:** Feature extraction on Polycam scans (by Day 12)
-- **Matteo:** Visualization utilities for demo (by Day 8)
+- **Leonardo:** Encoder wrapper, trained MLP checkpoint
+- **Ricardo:** Feature extraction on Polycam scans
+- **Matteo:** Visualization utilities for demo
 
 ## What Others Depend on From You
 
-- **Leonardo + Ricardo:** Preprocessed S3DIS data (by Day 3–4)
-- **Ricardo:** Polycam scans exported (by Day 5, more by Day 10)
-- **All:** Working demo (by Day 12)
-- **All:** Shared Drive structure (by Day 2)
+- **Leonardo + Ricardo:** Preprocessed S3DIS data
+- **Ricardo:** Polycam scans exported
+- **All:** Working demo
+- **All:** Shared Drive structure
 
 ---
 

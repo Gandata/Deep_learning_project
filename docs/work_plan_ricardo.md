@@ -10,7 +10,7 @@
 
 **Goal:** All Concerto features extracted for S3DIS Area 5, evaluation framework ready.
 
-### Day 1–2: Environment Setup & CLIP Baseline
+### Environment Setup & CLIP Baseline
 - [ ] Set up personal Colab environment: verify spconv, torch, open_clip install (parallel with Leonardo)
 - [ ] Write `src/clip_utils.py` — CLIP text embedding utilities (coordinate with Leonardo — he may start this too):
   - Load CLIP ViT-B/32 model
@@ -20,7 +20,7 @@
   - Save to Drive: `data/s3dis_processed/label_to_clip_embeddings.npy`
 - [ ] Review Concerto paper Table 5 (language probing section) — note which metrics and baselines to reproduce
 
-### Day 3–5: Batch Feature Extraction
+### Batch Feature Extraction
 - [ ] Write `scripts/extract_features.py`:
   - Uses Leonardo's `src/encoder.py` wrapper
   - Iterates over S3DIS Area 5 rooms
@@ -47,7 +47,7 @@
 
 **Goal:** Full evaluation pipeline producing mIoU, top-k accuracy, and comparison tables.
 
-### Day 6–8: Evaluation Script
+### Evaluation Script
 - [ ] Write `src/evaluate.py`:
   - Load pre-extracted features and ground-truth labels
   - Load trained MLP checkpoint
@@ -62,7 +62,7 @@
 - [ ] Write `configs/eval_s3dis.yaml` with paths and settings
 - [ ] Handle edge cases: classes with 0 predictions, very small classes
 
-### Day 8–9: Run Evaluation & Iterate with Leonardo
+### Run Evaluation & Iterate with Leonardo
 - [ ] Evaluate Leonardo's first MLP checkpoint (`mlp_v1_mse_loss_epoch50.pth`)
   - Report mIoU and per-class breakdown to Leonardo
   - Identify which classes perform worst — investigate why
@@ -75,7 +75,7 @@
   | MLP v1 (MSE loss) | ? | ? | ? | ? |
   | MLP v2 (cosine loss) | ? | ? | ? | ? |
 
-### Day 10: Open-Vocabulary Evaluation
+### Open-Vocabulary Evaluation
 - [ ] Test the MLP with **novel text queries** not in the 13 S3DIS classes:
   - "fire extinguisher", "whiteboard", "computer monitor", "bookshelf", "trash can"
   - This tests whether the CLIP alignment generalizes beyond training classes
@@ -96,7 +96,7 @@
 
 **Goal:** Evaluate on Polycam scans, optionally compare with Utonia, finalize results for presentation.
 
-### Day 11–12: Polycam Evaluation
+### Polycam Evaluation
 - [ ] Extract Concerto features for Adrian's Polycam scans (use existing extraction pipeline)
 - [ ] Run MLP + evaluation on Polycam scans
   - Note: no ground truth for Polycam → qualitative evaluation only
@@ -107,7 +107,7 @@
   - How does point density / RGB quality affect results?
   - Is the domain gap severe?
 
-### Day 12–13: Utonia Comparison (Optional — Stretch Goal)
+### Utonia Comparison (Optional — Stretch Goal)
 - [ ] **Decision gate:** Check if Utonia weights are publicly available
   - If YES and time permits:
     - [ ] Download Utonia weights
@@ -119,12 +119,12 @@
     - [ ] Skip Utonia — document in presentation as "future work"
     - [ ] Focus on polishing existing results and helping Matteo with figures
 
-### Day 13: Final Results & Figures
+### Final Results & Figures
 - [ ] Compile all quantitative results into final tables
 - [ ] Generate final figures for presentation (work with Matteo)
 - [ ] Save all results to Drive: `results/final_metrics.json`, `results/figures/`
 
-### Day 14–15: Presentation
+### Presentation
 - [ ] Prepare 3–4 slides for your section:
   - Evaluation methodology: metrics, protocol
   - Quantitative results: mIoU table, per-class breakdown
@@ -161,13 +161,13 @@
 
 ## Dependencies on Others
 
-- **Leonardo:** Encoder wrapper (by Day 3), MLP checkpoints (by Day 8, iteratively)
-- **Adrian:** Preprocessed S3DIS data (by Day 3), Polycam scans (by Day 11)
-- **Matteo:** Visualization utilities for evaluation notebook (by Day 8), slide template (by Day 13)
+- **Leonardo:** Encoder wrapper, MLP checkpoints
+- **Adrian:** Preprocessed S3DIS data, Polycam scans
+- **Matteo:** Visualization utilities for evaluation notebook, slide template
 
 ## What Others Depend on From You
 
-- **Leonardo:** Evaluation results to guide MLP iteration (by Day 8)
-- **Matteo:** Quantitative results and per-class breakdowns for visualization (by Day 9)
-- **Adrian:** Feature extraction on Polycam scans (by Day 12)
-- **All:** Final results tables for presentation (by Day 13)
+- **Leonardo:** Evaluation results to guide MLP iteration
+- **Matteo:** Quantitative results and per-class breakdowns for visualization
+- **Adrian:** Feature extraction on Polycam scans
+- **All:** Final results tables for presentation
