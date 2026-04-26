@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 
-DEFAULT_POINT_COLOR = "rgb(0, 102, 204)"  # light blue
+DEFAULT_POINT_COLOR = "rgb(114,162,224)"  # light blue
 
 DEFAULT_CLASS_COLORS = [
     "rgb(31,119,180)",   # blue
@@ -19,12 +19,12 @@ DEFAULT_CLASS_COLORS = [
     "rgb(127,127,127)",  # gray
     "rgb(188,189,34)",   # olive
     "rgb(23,190,207)",   # cyan
-    "rgb(174,199,232)",
-    "rgb(255,187,120)",
-    "rgb(152,223,138)",
-    "rgb(255,152,150)",
-    "rgb(197,176,213)",
-    "rgb(196,156,148)",
+    "rgb(114,162,224)",   # light blue
+    "rgb(255,187,120)",   # light orange
+    "rgb(152,223,138)",   # light green
+    "rgb(255,152,150)",   # light red / salmon
+    "rgb(197,176,213)",   # light purple / lavender
+    "rgb(196,156,148)",   # light brown
 ]
 
 
