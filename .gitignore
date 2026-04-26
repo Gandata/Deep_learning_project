@@ -24,6 +24,20 @@ results/
 *.tar
 *.7z
 
+# ============================================
+# Secrets & tokens — NEVER commit these
+# ============================================
+.env
+.env.*
+.envrc
+*.token
+*_token.txt
+hf_token*
+secrets.py
+secrets.json
+*secret*
+.colab_secrets
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
