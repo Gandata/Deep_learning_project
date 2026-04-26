@@ -39,14 +39,12 @@ def parse_args():
         description="Convert a raw .ply scan into pipeline-ready .npy files."
     )
     parser.add_argument(
-        "--input",
-        "-i",
+        "--input", "-i",
         required=True,
         help="Path to input .ply file",
     )
     parser.add_argument(
-        "--output",
-        "-o",
+        "--output", "-o",
         required=True,
         help="Output folder where coord/color/normal.npy will be saved",
     )
@@ -55,7 +53,7 @@ def parse_args():
         type=float,
         default=0.02,
         help="Voxel size for downsampling in metres (default: 0.02 = 2cm). "
-        "Set to 0 to skip downsampling.",
+             "Set to 0 to skip downsampling.",
     )
     parser.add_argument(
         "--normal_radius",
@@ -79,7 +77,6 @@ def parse_args():
 
 
 # ── Processing steps ──────────────────────────────────────────────────────────
-
 
 def load_ply(path: Path) -> o3d.geometry.PointCloud:
     """Load a .ply file and report what fields it contains."""
@@ -106,9 +103,7 @@ def remove_outliers(pcd: o3d.geometry.PointCloud) -> o3d.geometry.PointCloud:
     return pcd_clean
 
 
-def downsample(
-    pcd: o3d.geometry.PointCloud, voxel_size: float
-) -> o3d.geometry.PointCloud:
+def downsample(pcd: o3d.geometry.PointCloud, voxel_size: float) -> o3d.geometry.PointCloud:
     """Voxel downsample to reduce density while keeping structure."""
     log.info(f"Downsampling with voxel size {voxel_size}m...")
     before = len(pcd.points)
@@ -154,8 +149,8 @@ def save_npy(output_dir: Path, coord, color, normal):
     """Save the three arrays as .npy files."""
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    np.save(output_dir / "coord.npy", coord.astype(np.float32))
-    np.save(output_dir / "color.npy", color.astype(np.float32))
+    np.save(output_dir / "coord.npy",  coord.astype(np.float32))
+    np.save(output_dir / "color.npy",  color.astype(np.float32))
     np.save(output_dir / "normal.npy", normal.astype(np.float32))
 
     log.info(f"Saved to {output_dir}/")
@@ -166,11 +161,10 @@ def save_npy(output_dir: Path, coord, color, normal):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-
 def main():
     args = parse_args()
 
-    input_path = Path(args.input)
+    input_path  = Path(args.input)
     output_path = Path(args.output)
 
     if not input_path.exists():
@@ -196,9 +190,9 @@ def main():
         pcd = estimate_normals(pcd, args.normal_radius, args.normal_max_nn)
 
     # 6. Extract numpy arrays
-    coord = np.asarray(pcd.points, dtype=np.float32)  # (N, 3)
-    color = np.asarray(pcd.colors, dtype=np.float32)  # (N, 3) in [0,1]
-    normal = np.asarray(pcd.normals, dtype=np.float32)  # (N, 3)
+    coord  = np.asarray(pcd.points,  dtype=np.float32)   # (N, 3)
+    color  = np.asarray(pcd.colors,  dtype=np.float32)   # (N, 3) in [0,1]
+    normal = np.asarray(pcd.normals, dtype=np.float32)   # (N, 3)
 
     # 7. Normalise XYZ
     coord = normalize_xyz(coord)
