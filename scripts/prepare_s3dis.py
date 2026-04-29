@@ -82,14 +82,12 @@ def parse_args():
     parser.add_argument(
         "--normalize_xyz",
         action="store_true",
-        default=True,
-        help="Shift each room so its centroid is at the origin (default: True)",
+        help="Shift each room so its centroid is at the origin (dataset.py does this on the fly, so leave this off)",
     )
     parser.add_argument(
         "--normalize_rgb",
         action="store_true",
-        default=True,
-        help="Scale RGB values from [0,255] to [0,1] (default: True)",
+        help="Scale RGB values from [0,255] to [0,1] (dataset.py does this on the fly, so leave this off)",
     )
     return parser.parse_args()
 
@@ -191,10 +189,10 @@ def process_area(
     stats = {"rooms": 0, "points": 0, "skipped": 0}
 
     for room_dir in room_dirs:
-        out_file = output_area / f"{room_dir.name}.npy"
+        out_room_dir = output_area / room_dir.name
 
-        if out_file.exists():
-            log.info(f"  [skip] {room_dir.name}.npy already exists")
+        if out_room_dir.exists() and (out_room_dir / "coord.npy").exists():
+            log.info(f"  [skip] {room_dir.name} already processed")
             stats["rooms"] += 1
             continue
 
@@ -204,11 +202,21 @@ def process_area(
         if cloud is None:
             stats["skipped"] += 1
             continue
+            
+        out_room_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Split into coord, color, segment
+        coord = cloud[:, :3].astype(np.float32)
+        color = cloud[:, 3:6].astype(np.float32)
+        segment = cloud[:, 6:7].astype(np.int64)
+        
+        np.save(out_room_dir / "coord.npy", coord)
+        np.save(out_room_dir / "color.npy", color)
+        np.save(out_room_dir / "segment.npy", segment)
 
-        np.save(out_file, cloud)
         stats["rooms"] += 1
         stats["points"] += len(cloud)
-        log.info(f"    → saved {len(cloud):,} points  ({out_file.name})")
+        log.info(f"    → saved {len(cloud):,} points  ({out_room_dir.name}/)")
 
     log.info(
         f"  Area done: {stats['rooms']} rooms, "

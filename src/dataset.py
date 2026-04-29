@@ -169,8 +169,9 @@ class S3DISDataset(Dataset):
         }
 
         # Optionally include surface normals
-        if self.use_normal:
-            normal = np.load(room_path / "normal.npy").astype(np.float32)  # (N, 3)
+        normal_path = room_path / "normal.npy"
+        if self.use_normal and normal_path.exists():
+            normal = np.load(normal_path).astype(np.float32)  # (N, 3)
             if self.max_points is not None and "idx_sample" in dir():
                 normal = normal[idx_sample]
             sample["normal"] = normal
