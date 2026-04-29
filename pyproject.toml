@@ -1,0 +1,15 @@
+[project]
+name = "deep-learning-project"
+version = "0.1.0"
+description = "Open-World Text-Based 3D Object Search"
+readme = "README.md"
+requires-python = "==3.11.*"
+dependencies = [
+    "torch",
+    "open_clip_torch",
+    "numpy",
+    "python-dotenv",
+    "huggingface_hub",
+    "scipy",
+    "open3d",
+]

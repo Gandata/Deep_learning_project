@@ -55,10 +55,6 @@ DL_Project/                                    (Shared with all 4 members)
 │   │   └── query_lamp.html
 │   └── figures/                               # For presentation
 │
-├── pretrained/                                # Downloaded pretrained weights
-│   ├── concerto_small.pth                     # From HuggingFace
-│   └── clip_vitb32.pth                        # If needed locally
-│
 └── presentation/                              # Google Slides + exports
     ├── slides_link.txt                        # Link to Google Slides doc
     └── exported_figures/
@@ -95,13 +91,13 @@ else:
 %cd {REPO_DIR}
 
 # === 3. Install dependencies ===
-!pip install -q -r requirements.txt
+!pip install uv
+!uv pip install --system -e .
 
 # === 4. Symlink Drive data ===
 !ln -sf /content/drive/MyDrive/DL_Project/data ./data
 !ln -sf /content/drive/MyDrive/DL_Project/checkpoints ./checkpoints
 !ln -sf /content/drive/MyDrive/DL_Project/features ./features
-!ln -sf /content/drive/MyDrive/DL_Project/pretrained ./pretrained
 ```
 
 ### Saving Work from Colab

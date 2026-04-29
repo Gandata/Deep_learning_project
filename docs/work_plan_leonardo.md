@@ -16,7 +16,7 @@
 - [ ] Test spconv installation on a clean Colab T4 session — **this is the highest-risk dependency**
   - If `spconv-cu118` fails, try `spconv-cu121` or compile from source
   - Document the exact install sequence that works
-- [ ] Download Concerto Small pretrained weights from HuggingFace → save to Drive (`pretrained/concerto_small.pth`)
+- [ ] Load Concerto Small weights directly using `hf_token` via the huggingface_hub library. Do not save base models to Drive.
 - [ ] Write `src/encoder.py`: minimal wrapper that loads Concerto Small and runs a forward pass on a dummy point cloud
 - [ ] Verify output shape and feature dimensionality (should be D=256 per point)
 

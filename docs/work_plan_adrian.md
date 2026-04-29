@@ -23,7 +23,6 @@
   │   └── polycam/
   ├── features/
   ├── checkpoints/
-  ├── pretrained/
   ├── results/
   └── presentation/
   ```
