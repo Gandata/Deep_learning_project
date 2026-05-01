@@ -1,0 +1,52 @@
+data:
+  train_features_path: "features/s3dis_area5"
+  val_features_path: null
+  label_embeddings_path: "data/s3dis_processed/label_to_clip_embeddings.npy"
+  normalize_features: true
+  label_texts:
+    - "ceiling of a room"
+    - "floor of a room"
+    - "wall of a room"
+    - "beam on the ceiling"
+    - "column or pillar"
+    - "window"
+    - "door"
+    - "sofa or couch"
+    - "table or desk"
+    - "chair"
+    - "bookcase or shelf"
+    - "whiteboard or board"
+    - "clutter or miscellaneous object"
+
+clip:
+  model_name: "ViT-B-32"
+  pretrained: "openai"
+  templates:
+    - "a photo of a {}"
+    - "a 3D point cloud of a {}"
+    - "a {}"
+
+model:
+  input_dim: 256
+  hidden_dims: [512, 512]
+  output_dim: 512
+  dropout: 0.1
+  activation: "gelu"
+  normalize_output: true
+
+training:
+  seed: 42
+  device: null
+  epochs: 50
+  batch_size: 4096
+  num_workers: 0
+  learning_rate: 0.001
+  weight_decay: 0.0001
+  loss: "mse"
+  mse_weight: 1.0
+  cosine_weight: 1.0
+  save_every: 5
+  save_best: true
+  resume_from: null
+  checkpoint_dir: "checkpoints/mlp_s3dis"
+  metrics_path: "checkpoints/mlp_s3dis/history.json"

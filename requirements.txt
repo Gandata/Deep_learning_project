@@ -1,0 +1,19 @@
+# Lean but real base environment for the project.
+# Chosen to run comfortably on Colab/local CPU-GPU without pulling the full
+# Concerto stack yet.
+
+torch>=2.1
+numpy==1.26.4
+pyyaml>=6.0
+open_clip_torch>=2.24
+open3d>=0.18
+plotly>=5.18
+huggingface_hub>=0.23
+python-dotenv>=1.0
+pytest>=8.0
+
+# Add later for real Concerto / Pointcept integration:
+# pointcept
+# spconv-cu118>=2.3
+# torch-scatter
+# timm
