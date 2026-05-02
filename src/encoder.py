@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping, Union
 import os
+import sys
 import warnings
 
 import numpy as np
@@ -84,11 +85,17 @@ class ConcertoEncoder(nn.Module):
     def _init_concerto_backend(self) -> None:
         try:
             import concerto
-        except Exception as error:
-            raise ImportError(
-                "The real Concerto backend requires the official `concerto` package "
-                "and its dependencies. Install them following the official repo."
-            ) from error
+        except Exception:
+            concerto_dir = os.getenv("CONCERTO_DIR", "/content/Concerto")
+            if Path(concerto_dir).exists() and concerto_dir not in sys.path:
+                sys.path.insert(0, concerto_dir)
+            try:
+                import concerto
+            except Exception as error:
+                raise ImportError(
+                    "The real Concerto backend requires the official `concerto` package "
+                    "and its dependencies. Install them following the official repo."
+                ) from error
 
         self._login_hf_if_available()
 
