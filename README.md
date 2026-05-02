@@ -119,7 +119,7 @@ Deep_learning_project/
 | `torch` | ≥ 2.1 | Core framework |
 | `pointcept` | latest | Concerto encoder & data utilities |
 | `open_clip_torch` | ≥ 2.24 | CLIP text encoder |
-| `spconv-cu118` | ≥ 2.3 | Sparse convolution backend (Colab T4) |
+| `spconv-cu118` / `spconv-cu12x` | ≥ 2.3 | Sparse convolution backend; exact wheel depends on the active Colab CUDA runtime |
 | `open3d` | ≥ 0.18 | Point cloud I/O & visualization |
 | `numpy`, `scipy` | latest | Numerical utilities |
 | `pyyaml` | latest | Config parsing |
@@ -130,6 +130,8 @@ Deep_learning_project/
 > ```bash
 > !pip install -r requirements.txt
 > ```
+>
+> `notebooks/03_train_mlp.ipynb` now skips Concerto/spconv entirely when pre-extracted `features/s3dis_area5/*.npz` already exist, and otherwise auto-tests a few `spconv` wheels before failing.
 
 ---
 
