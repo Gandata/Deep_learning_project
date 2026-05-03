@@ -13,3 +13,8 @@ dependencies = [
     "scipy",
     "open3d",
 ]
+
+[project.optional-dependencies]
+test = [
+    "pytest",
+]

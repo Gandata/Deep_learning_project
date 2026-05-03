@@ -128,7 +128,7 @@ Each person primarily owns specific files. This minimizes merge conflicts:
 
 | Person | Primary files | Shared files (coordinate!) |
 |--------|---------------|----------------------------|
-| **Leonardo** | `src/encoder.py`, `src/translation_head.py`, `src/train.py` | `configs/*.yaml`, `requirements.txt` |
+| **Leonardo** | `src/encoder.py`, `src/translation_head.py`, `src/train.py` | `configs/*.yaml`, `pyproject.toml` |
 | **Ricardo** | `src/evaluate.py`, `scripts/extract_features.py` | `configs/*.yaml`, `src/dataset.py` |
 | **Adrian** | `scripts/prepare_s3dis.py`, `scripts/export_polycam.py`, `notebooks/01_*.ipynb`, `notebooks/05_*.ipynb` | `src/dataset.py` |
 | **Matteo** | `src/visualize.py`, `notebooks/04_*.ipynb`, `presentation/` | `src/evaluate.py` (metrics display) |
@@ -137,7 +137,7 @@ Each person primarily owns specific files. This minimizes merge conflicts:
 
 1. **`src/dataset.py`** — Adrian creates the initial version. Ricardo and Leonardo add their specific data loading needs via PR.
 2. **`configs/*.yaml`** — One person updates, others pull before modifying.
-3. **`requirements.txt`** — Only update on `dev` via PR. Never on feature branches independently.
+3. **`pyproject.toml`** — Only update on `dev` via PR. Never on feature branches independently.
 
 ### Communication Protocol
 

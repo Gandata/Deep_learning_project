@@ -10,12 +10,8 @@ import torch.nn.functional as F
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from src.translation_head import MLPTranslationHead
-
-
-def load_clip_embeddings(path: str) -> np.ndarray:
-    if not os.path.exists(path):
-        raise FileNotFoundError(f"CLIP embeddings not found at {path}. Run clip_utils.py first.")
-    return np.load(path)
+from src.clip_utils import CLIPTextEncoder, init_hf, DEFAULT_PROMPT_TEMPLATES
+from src.dataset import LABEL_TEXT, NUM_CLASSES
 
 
 def compute_metrics(pred_labels, true_labels, num_classes=13):
@@ -65,9 +61,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--features_dir", type=str, default="features/s3dis_area5")
     parser.add_argument(
-        "--clip_emb",
+        "--clip_model",
         type=str,
-        default="data/s3dis_processed/label_to_clip_embeddings.npy",
+        default="ViT-B-32",
+        help="CLIP model to use for generating text embeddings.",
+    )
+    parser.add_argument(
+        "--clip_pretrained",
+        type=str,
+        default="openai",
+        help="Pretrained weights for CLIP.",
     )
     parser.add_argument(
         "--checkpoint",
@@ -86,9 +89,20 @@ def main():
     device = torch.device(args.device) if args.device else torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
-    clip_embeddings = load_clip_embeddings(args.clip_emb)
-    clip_embeddings_torch = torch.from_numpy(clip_embeddings).float().to(device)
-    clip_embeddings_torch = F.normalize(clip_embeddings_torch, dim=-1)
+
+    init_hf()
+    print(f"Loading CLIP model {args.clip_model} ({args.clip_pretrained})...")
+    clip_encoder = CLIPTextEncoder(
+        model_name=args.clip_model,
+        pretrained=args.clip_pretrained,
+        device=device,
+    )
+    class_descriptions = [LABEL_TEXT[i] for i in range(NUM_CLASSES)]
+    clip_embeddings_torch = clip_encoder.encode_labels(
+        class_descriptions,
+        templates=DEFAULT_PROMPT_TEMPLATES,
+        normalize=True,
+    ).to(device)
 
     model = build_model_from_checkpoint(args.checkpoint, device=device)
     if args.checkpoint:

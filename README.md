@@ -64,7 +64,7 @@ Deep_learning_project/
 ├── README.md                      # This file
 ├── LICENSE
 ├── .gitignore
-├── requirements.txt               # Pinned dependencies for Colab
+├── pyproject.toml                 # Project dependencies (uv)
 │
 ├── docs/                          # Documentation & papers
 │   ├── Concerto.pdf
@@ -126,9 +126,10 @@ Deep_learning_project/
 | `wandb` *(optional)* | latest | Experiment tracking |
 | `plotly` *(optional)* | latest | Interactive 3D visualization |
 
-> A full `requirements.txt` will be provided. On Colab, install with:
+> A `pyproject.toml` is provided. On Colab, install with:
 > ```bash
-> !pip install -r requirements.txt
+> !pip install uv
+> !uv pip install --system -e .
 > ```
 >
 > `notebooks/03_train_mlp.ipynb` now skips Concerto/spconv entirely when pre-extracted `features/s3dis_area5/*.npz` already exist, and otherwise auto-tests a few `spconv` wheels before failing.
@@ -143,7 +144,8 @@ Deep_learning_project/
 %cd Deep_learning_project
 
 # 2. Install dependencies
-!pip install -r requirements.txt
+!pip install uv
+!uv pip install --system -e .
 
 # 3. Mount Google Drive (for data & checkpoints)
 from google.colab import drive

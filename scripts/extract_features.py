@@ -37,9 +37,7 @@ def main():
         default=None,
         help=(
             "Optional local checkpoint path. If omitted, the encoder downloads "
-            "Pointcept/Concerto -> concerto_small.pth from Hugging Face. "
-            "Example alternative: "
-            "/content/drive/MyDrive/DL_Project/pretrained/concerto_small.pth"
+            "Pointcept/Concerto -> concerto_small.pth from Hugging Face."
         ),
     )
     parser.add_argument(

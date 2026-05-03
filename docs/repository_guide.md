@@ -17,7 +17,7 @@
 ```
 Deep_learning_project/
 ├── README.md                 # Entry point — what, why, how
-├── requirements.txt          # Pinned deps (torch, open_clip, spconv, etc.)
+├── pyproject.toml            # Project dependencies (uv)
 ├── .gitignore                # Excludes data/, checkpoints/, *.ply, *.pth
 │
 ├── docs/                     # All planning & reference documents
@@ -213,7 +213,7 @@ Thumbs.db
 - All `.py` source files
 - All `.ipynb` notebooks (with outputs stripped)
 - Config files (`.yaml`)
-- `requirements.txt`
+- `pyproject.toml`
 - Documentation (`.md`)
 - Small visualization outputs (`.png`, `.html`) if under 1MB
 
