@@ -73,7 +73,7 @@ def get_text_embedding(
     with autocast_context:
         text_features = model.encode_text(text_tokens)
     text_features = F.normalize(text_features, dim=-1)
-    return text_features[0]
+    return text_features
 
 
 @torch.no_grad()
