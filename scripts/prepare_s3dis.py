@@ -30,7 +30,9 @@ import json
 import argparse
 import logging
 import numpy as np
+import pandas as pd
 from pathlib import Path
+from concurrent.futures import ProcessPoolExecutor, as_completed
 
 # ── Logging setup ─────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -135,7 +137,9 @@ def load_room(room_path: Path, normalize_xyz: bool, normalize_rgb: bool) -> np.n
 
         try:
             # Each line: X Y Z R G B  (space-separated, sometimes has stray chars)
-            raw = np.loadtxt(obj_file, dtype=np.float32)
+            # Using pandas read_csv for much faster parsing than np.loadtxt
+            df = pd.read_csv(obj_file, sep=r'\s+', header=None, dtype=np.float32)
+            raw = df.values
         except Exception as e:
             log.warning(f"    Could not parse {obj_file.name}: {e} — skipping")
             continue
@@ -175,6 +179,31 @@ def load_room(room_path: Path, normalize_xyz: bool, normalize_rgb: bool) -> np.n
     return cloud
 
 
+def process_single_room(room_dir: Path, output_area: Path, normalize_xyz: bool, normalize_rgb: bool):
+    out_room_dir = output_area / room_dir.name
+
+    if out_room_dir.exists() and (out_room_dir / "coord.npy").exists():
+        return room_dir.name, "already_processed", 0
+
+    cloud = load_room(room_dir, normalize_xyz, normalize_rgb)
+
+    if cloud is None:
+        return room_dir.name, "failed", 0
+        
+    out_room_dir.mkdir(parents=True, exist_ok=True)
+    
+    # Split into coord, color, segment
+    coord = cloud[:, :3].astype(np.float32)
+    color = cloud[:, 3:6].astype(np.float32)
+    segment = cloud[:, 6:7].astype(np.int64)
+    
+    np.save(out_room_dir / "coord.npy", coord)
+    np.save(out_room_dir / "color.npy", color)
+    np.save(out_room_dir / "segment.npy", segment)
+
+    return room_dir.name, "processed", len(cloud)
+
+
 def process_area(
     area_path: Path, output_area: Path, normalize_xyz: bool, normalize_rgb: bool
 ):
@@ -187,36 +216,37 @@ def process_area(
         return
 
     stats = {"rooms": 0, "points": 0, "skipped": 0}
+    futures = []
 
-    for room_dir in room_dirs:
-        out_room_dir = output_area / room_dir.name
+    log.info(f"  Starting parallel processing of {len(room_dirs)} rooms...")
+    with ProcessPoolExecutor() as executor:
+        for room_dir in room_dirs:
+            futures.append(
+                executor.submit(
+                    process_single_room,
+                    room_dir,
+                    output_area,
+                    normalize_xyz,
+                    normalize_rgb,
+                )
+            )
 
-        if out_room_dir.exists() and (out_room_dir / "coord.npy").exists():
-            log.info(f"  [skip] {room_dir.name} already processed")
-            stats["rooms"] += 1
-            continue
-
-        log.info(f"  Processing room: {room_dir.name}")
-        cloud = load_room(room_dir, normalize_xyz, normalize_rgb)
-
-        if cloud is None:
-            stats["skipped"] += 1
-            continue
-            
-        out_room_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Split into coord, color, segment
-        coord = cloud[:, :3].astype(np.float32)
-        color = cloud[:, 3:6].astype(np.float32)
-        segment = cloud[:, 6:7].astype(np.int64)
-        
-        np.save(out_room_dir / "coord.npy", coord)
-        np.save(out_room_dir / "color.npy", color)
-        np.save(out_room_dir / "segment.npy", segment)
-
-        stats["rooms"] += 1
-        stats["points"] += len(cloud)
-        log.info(f"    → saved {len(cloud):,} points  ({out_room_dir.name}/)")
+        for future in as_completed(futures):
+            try:
+                room_name, status, num_points = future.result()
+                if status == "already_processed":
+                    stats["rooms"] += 1
+                    log.info(f"  [skip] {room_name} already processed")
+                elif status == "failed":
+                    stats["skipped"] += 1
+                    log.info(f"  [failed/skipped] {room_name}")
+                else:
+                    stats["rooms"] += 1
+                    stats["points"] += num_points
+                    log.info(f"    → saved {num_points:,} points  ({room_name}/)")
+            except Exception as e:
+                log.error(f"  Error processing room: {e}")
+                stats["skipped"] += 1
 
     log.info(
         f"  Area done: {stats['rooms']} rooms, "
