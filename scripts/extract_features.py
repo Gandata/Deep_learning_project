@@ -45,6 +45,25 @@ def main():
         action="store_true",
         help="Overwrite existing feature files.",
     )
+    parser.add_argument(
+        "--feature-dtype",
+        type=str,
+        default="float16",
+        choices=("float16", "float32"),
+        help=(
+            "Storage dtype for saved features. "
+            "`float16` is much smaller on disk and is sufficient for notebook 03, "
+            "which casts features back to float32 during training."
+        ),
+    )
+    parser.add_argument(
+        "--save-coord",
+        action="store_true",
+        help=(
+            "Also save XYZ coordinates into the .npz file. "
+            "Notebook 03 does not need them, so leaving this off keeps files smaller."
+        ),
+    )
     args = parser.parse_args()
 
     device = torch.device(args.device) if args.device else torch.device(
@@ -86,16 +105,23 @@ def main():
         with torch.no_grad():
             features = encoder(encoder_input)
 
-        features_np = features.detach().cpu().numpy().astype(np.float32)
+        feature_dtype = np.float16 if args.feature_dtype == "float16" else np.float32
+        features_np = features.detach().cpu().numpy().astype(feature_dtype, copy=False)
+        labels_np = sample["label"].astype(np.uint8, copy=False)
         print(f"{room_name}: feature dim = {features_np.shape[1]}")
+        payload = {
+            "features": features_np,
+            "labels": labels_np,
+        }
+        if args.save_coord:
+            payload["coord"] = sample["coord"].astype(np.float32, copy=False)
 
-        np.savez_compressed(
-            out_path,
-            features=features_np,
-            labels=sample["label"].astype(np.int64),
-            coord=sample["coord"].astype(np.float32),
+        np.savez_compressed(out_path, **payload)
+        approx_mb = out_path.stat().st_size / (1024 ** 2) if out_path.exists() else 0.0
+        print(
+            f"Saved features for {room_name} -> {out_path} "
+            f"({args.feature_dtype}, coord={'yes' if args.save_coord else 'no'}, {approx_mb:.1f} MB)"
         )
-        print(f"Saved features for {room_name} -> {out_path}")
 
 
 if __name__ == "__main__":
