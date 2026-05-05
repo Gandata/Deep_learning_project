@@ -1,0 +1,37 @@
+[project]
+name = "s3dis-project"
+version = "0.1.0"
+description = "Proyecto S3DIS con Concerto"
+requires-python = "==3.10.12"
+dependencies = [
+    "torch==2.5.0",
+    "torchvision",
+    "torchaudio",
+    "spconv-cu120",
+    "torch-scatter",
+    "huggingface-hub",
+    "timm",
+    "yapf",
+    "open3d",
+    "fast-pytorch-kmeans",
+    "psutil",
+    "addict",
+    "scipy",
+    "camtools",
+    "natsort",
+    "opencv-python",
+    "trimesh",
+    "gradio",
+    "numpy==1.26.4",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cu124"
+url = "https://download.pytorch.org/whl/cu124"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu124" }
+torchvision = { index = "pytorch-cu124" }
+torchaudio = { index = "pytorch-cu124" }
+torch-scatter = { url = "https://data.pyg.org/whl/torch-2.5.0%2Bcu124/torch_scatter-2.1.2%2Bpt25cu124-cp310-cp310-linux_x86_64.whl" }
