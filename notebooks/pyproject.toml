@@ -23,6 +23,8 @@ dependencies = [
     "trimesh",
     "gradio",
     "numpy==1.26.4",
+    "dotenv",
+    "python-dotenv",
 ]
 
 [[tool.uv.index]]
