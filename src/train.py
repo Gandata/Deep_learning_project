@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import gc
 import json
+import math
 import random
 from pathlib import Path
 import sys
@@ -214,6 +215,52 @@ def collect_feature_files(path: str | Path) -> list[Path]:
     return files
 
 
+def infer_room_type(path: Path) -> str:
+    parts = path.stem.split("_")
+    if len(parts) >= 4 and parts[0] == "Area":
+        room_type_parts = parts[2:-1]
+        if room_type_parts:
+            return "_".join(room_type_parts)
+    return path.stem
+
+
+def select_files_by_room_type_fraction(
+    files: list[Path],
+    fraction: float,
+    seed: int,
+    split_name: str,
+) -> list[Path]:
+    if not (0.0 < fraction <= 1.0):
+        raise ValueError(
+            f"`{split_name}_room_type_fraction` must be in (0, 1], got {fraction}."
+        )
+    if fraction >= 1.0:
+        return files
+
+    grouped: dict[str, list[Path]] = {}
+    for file_path in files:
+        grouped.setdefault(infer_room_type(file_path), []).append(file_path)
+
+    rng = random.Random(seed)
+    selected: list[Path] = []
+    print(
+        f"Selecting {fraction:.0%} of {split_name} files per room type "
+        f"(rounded up, seed={seed})"
+    )
+    for room_type in sorted(grouped):
+        room_files = sorted(grouped[room_type])
+        shuffled = room_files[:]
+        rng.shuffle(shuffled)
+        keep_count = math.ceil(len(room_files) * fraction)
+        chosen = sorted(shuffled[:keep_count])
+        selected.extend(chosen)
+        print(f"  {room_type}: keeping {len(chosen)}/{len(room_files)} files")
+
+    selected = sorted(selected)
+    print(f"Selected {len(selected)}/{len(files)} {split_name} files total")
+    return selected
+
+
 def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
     files = collect_feature_files(path)
     feature_chunks: list[Tensor] = []
@@ -245,8 +292,16 @@ def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
 def inspect_feature_files(
     path: str | Path,
     split_name: str,
+    room_type_fraction: float = 1.0,
+    room_type_fraction_seed: int = 42,
 ) -> tuple[list[Path], int, int]:
     files = collect_feature_files(path)
+    files = select_files_by_room_type_fraction(
+        files,
+        fraction=room_type_fraction,
+        seed=room_type_fraction_seed,
+        split_name=split_name,
+    )
     detected_input_dim: int | None = None
     total_samples = 0
     bad_files: list[str] = []
@@ -453,9 +508,15 @@ def main() -> None:
     print(f"Using device: {device}")
 
     target_table = build_target_table(config, device=device)
+    train_room_type_fraction = float(data_cfg.get("train_room_type_fraction", 1.0))
+    train_room_type_fraction_seed = int(
+        data_cfg.get("train_room_type_fraction_seed", training_cfg.get("seed", seed))
+    )
     train_files, detected_input_dim, train_samples = inspect_feature_files(
         data_cfg["train_features_path"],
         split_name="train",
+        room_type_fraction=train_room_type_fraction,
+        room_type_fraction_seed=train_room_type_fraction_seed,
     )
     val_path = data_cfg.get("val_features_path")
     val_files = None

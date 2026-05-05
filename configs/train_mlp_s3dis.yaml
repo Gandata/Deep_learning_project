@@ -3,6 +3,8 @@ data:
   val_features_path: null
   label_embeddings_path: "data/s3dis_processed/label_to_clip_embeddings.npy"
   normalize_features: true
+  train_room_type_fraction: 0.5
+  train_room_type_fraction_seed: 42
   label_texts:
     - "ceiling of a room"
     - "floor of a room"
