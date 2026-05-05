@@ -15,6 +15,7 @@ import torch.nn.functional as F
 import yaml
 from torch import Tensor, nn
 from torch.optim import AdamW
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader, Dataset
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
@@ -261,6 +262,61 @@ def select_files_by_room_type_fraction(
     return selected
 
 
+def holdout_split_by_room_type(
+    files: list[Path],
+    holdout_fraction: float,
+    seed: int,
+) -> tuple[list[Path], list[Path]]:
+    """Split files into train/val sets, stratified by room type.
+
+    Ensures every room type with ≥2 files has at least 1 file in the
+    validation set, giving a representative held-out evaluation.
+    """
+    if not (0.0 < holdout_fraction < 1.0):
+        raise ValueError(
+            f"`val_holdout_fraction` must be in (0, 1), got {holdout_fraction}."
+        )
+
+    grouped: dict[str, list[Path]] = {}
+    for file_path in files:
+        grouped.setdefault(infer_room_type(file_path), []).append(file_path)
+
+    rng = random.Random(seed)
+    train_files: list[Path] = []
+    val_files: list[Path] = []
+
+    print(
+        f"Holdout validation split: {holdout_fraction:.0%} of files "
+        f"per room type (seed={seed})"
+    )
+    for room_type in sorted(grouped):
+        room_files = sorted(grouped[room_type])
+        shuffled = room_files[:]
+        rng.shuffle(shuffled)
+        val_count = max(1, math.ceil(len(room_files) * holdout_fraction))
+        # If there's only 1 file of this type, keep it for training
+        if len(room_files) == 1:
+            train_files.extend(room_files)
+            print(f"  {room_type}: 1 file → all train (no val)")
+            continue
+        val_chosen = sorted(shuffled[:val_count])
+        train_chosen = sorted(shuffled[val_count:])
+        val_files.extend(val_chosen)
+        train_files.extend(train_chosen)
+        print(
+            f"  {room_type}: {len(train_chosen)} train / "
+            f"{len(val_chosen)} val (of {len(room_files)})"
+        )
+
+    train_files = sorted(train_files)
+    val_files = sorted(val_files)
+    print(
+        f"Holdout result: {len(train_files)} train files, "
+        f"{len(val_files)} val files"
+    )
+    return train_files, val_files
+
+
 def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
     files = collect_feature_files(path)
     feature_chunks: list[Tensor] = []
@@ -494,6 +550,36 @@ def save_checkpoint(
     )
 
 
+def build_scheduler(
+    optimizer: AdamW,
+    training_cfg: dict[str, Any],
+    start_epoch: int,
+) -> CosineAnnealingLR | None:
+    """Build an optional LR scheduler from the training config."""
+    scheduler_name = training_cfg.get("scheduler", None)
+    if scheduler_name is None or scheduler_name == "none":
+        return None
+
+    epochs = training_cfg.get("epochs", 50)
+    if scheduler_name == "cosine":
+        min_lr = training_cfg.get("scheduler_min_lr", 1e-6)
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            T_max=epochs,
+            eta_min=min_lr,
+        )
+        # Fast-forward scheduler if resuming
+        for _ in range(start_epoch - 1):
+            scheduler.step()
+        print(
+            f"Using CosineAnnealingLR scheduler "
+            f"(T_max={epochs}, eta_min={min_lr})"
+        )
+        return scheduler
+
+    raise ValueError(f"Unsupported scheduler: {scheduler_name}")
+
+
 def main() -> None:
     args = parse_args()
     config = load_yaml(args.config)
@@ -518,10 +604,14 @@ def main() -> None:
         room_type_fraction=train_room_type_fraction,
         room_type_fraction_seed=train_room_type_fraction_seed,
     )
+
+    # --- Validation: explicit path, holdout split, or none ---
     val_path = data_cfg.get("val_features_path")
     val_files = None
     val_samples = 0
+
     if val_path:
+        # Explicit validation directory
         val_files, val_input_dim, val_samples = inspect_feature_files(
             val_path,
             split_name="val",
@@ -531,12 +621,44 @@ def main() -> None:
                 "Validation features do not match training feature dim: "
                 f"{val_input_dim} vs {detected_input_dim}."
             )
+    else:
+        # Random holdout from train files (stratified by room type)
+        holdout_fraction = float(data_cfg.get("val_holdout_fraction", 0.0))
+        if holdout_fraction > 0.0:
+            holdout_seed = int(
+                data_cfg.get("val_holdout_seed", training_cfg.get("seed", seed))
+            )
+            train_files, val_files_split = holdout_split_by_room_type(
+                train_files,
+                holdout_fraction=holdout_fraction,
+                seed=holdout_seed,
+            )
+            # Re-count samples for the reduced train set
+            train_samples = 0
+            for f in train_files:
+                feat, _ = load_feature_file(f)
+                train_samples += feat.shape[0]
+                del feat
+                gc.collect()
+            val_files = val_files_split
+            val_samples = 0
+            for f in val_files:
+                feat, _ = load_feature_file(f)
+                val_samples += feat.shape[0]
+                del feat
+                gc.collect()
 
     model = build_model(
         config,
         target_dim=target_table.shape[1],
         detected_input_dim=detected_input_dim,
     ).to(device)
+
+    # Optional torch.compile for PyTorch 2.x speedup
+    use_compile = training_cfg.get("compile_model", False)
+    if use_compile and hasattr(torch, "compile"):
+        print("Compiling model with torch.compile()...")
+        model = torch.compile(model)
 
     normalize_features = data_cfg.get("normalize_features", False)
     target_table_cpu = target_table.detach().cpu()
@@ -557,6 +679,8 @@ def main() -> None:
         optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
         start_epoch = int(checkpoint["epoch"]) + 1
         print(f"Resumed training from epoch {start_epoch}.")
+
+    scheduler = build_scheduler(optimizer, training_cfg, start_epoch)
 
     epochs = training_cfg.get("epochs", 50)
     loss_name = training_cfg.get("loss", "mse")
@@ -580,6 +704,8 @@ def main() -> None:
     print(f"Model params:  {num_parameters:,}")
 
     for epoch in range(start_epoch, epochs + 1):
+        current_lr = optimizer.param_groups[0]["lr"]
+
         train_loader = FileFeatureBatcher(
             train_files,
             target_table=target_table_cpu,
@@ -619,18 +745,29 @@ def main() -> None:
                     cosine_weight=cosine_weight,
                 )
 
+        # Step LR scheduler after each epoch
+        if scheduler is not None:
+            scheduler.step()
+
         history.append(
             {
                 "epoch": epoch,
                 "train_loss": float(train_loss),
                 "val_loss": None if val_loss is None else float(val_loss),
+                "lr": current_lr,
             }
         )
 
         if val_loss is None:
-            print(f"Epoch {epoch:03d} | train_loss={train_loss:.6f}")
+            print(
+                f"Epoch {epoch:03d} | train_loss={train_loss:.6f} "
+                f"| lr={current_lr:.2e}"
+            )
         else:
-            print(f"Epoch {epoch:03d} | train_loss={train_loss:.6f} | val_loss={val_loss:.6f}")
+            print(
+                f"Epoch {epoch:03d} | train_loss={train_loss:.6f} "
+                f"| val_loss={val_loss:.6f} | lr={current_lr:.2e}"
+            )
 
         if epoch % save_every == 0:
             save_checkpoint(

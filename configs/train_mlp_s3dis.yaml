@@ -1,10 +1,16 @@
 data:
-  train_features_path: "features/s3dis_area5"
+  train_features_path: "/content/Deep_learning_project/features/s3dis_area5"
   val_features_path: null
-  label_embeddings_path: "data/s3dis_processed/label_to_clip_embeddings.npy"
+  label_embeddings_path: "/content/Deep_learning_project/data/s3dis_processed/label_to_clip_embeddings.npy"
+
   normalize_features: true
-  train_room_type_fraction: 0.5
+  train_room_type_fraction: 1.0
   train_room_type_fraction_seed: 42
+
+  # Hold out 15% of rooms (stratified by room type) as validation
+  val_holdout_fraction: 0.15
+  val_holdout_seed: 42
+
   label_texts:
     - "ceiling of a room"
     - "floor of a room"
@@ -39,16 +45,22 @@ model:
 training:
   seed: 42
   device: null
-  epochs: 3
-  batch_size: 8192
-  num_workers: 0
+  epochs: 30
+  batch_size: 16384
   learning_rate: 0.001
   weight_decay: 0.0001
-  loss: "mse"
+  loss: "mse+cosine"
   mse_weight: 1.0
   cosine_weight: 1.0
   save_every: 5
   save_best: true
   resume_from: null
-  checkpoint_dir: "checkpoints/mlp_s3dis"
-  metrics_path: "checkpoints/mlp_s3dis/history.json"
+  checkpoint_dir: "/content/Deep_learning_project/checkpoints/mlp_s3dis"
+  metrics_path: "/content/Deep_learning_project/checkpoints/mlp_s3dis/history.json"
+
+  # LR scheduler: cosine annealing to 1e-5 over all epochs
+  scheduler: "cosine"
+  scheduler_min_lr: 0.00001
+
+  # torch.compile the model for ~5-10% speedup on PyTorch 2.x
+  compile_model: true
