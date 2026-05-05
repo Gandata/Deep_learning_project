@@ -168,11 +168,26 @@ def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
     files = collect_feature_files(path)
     feature_chunks: list[Tensor] = []
     label_chunks: list[Tensor] = []
+    bad_files: list[str] = []
 
     for file_path in files:
-        features, labels = load_feature_file(file_path)
+        try:
+            features, labels = load_feature_file(file_path)
+        except Exception as error:
+            bad_files.append(f"{file_path}: {error}")
+            continue
         feature_chunks.append(features)
         label_chunks.append(labels)
+
+    if bad_files:
+        joined = "\n".join(bad_files[:10])
+        if len(bad_files) > 10:
+            joined += f"\n... and {len(bad_files) - 10} more"
+        raise RuntimeError(
+            "Some extracted feature files are invalid or incomplete. "
+            "They likely need to be deleted and regenerated.\n"
+            f"{joined}"
+        )
 
     return torch.cat(feature_chunks, dim=0), torch.cat(label_chunks, dim=0)
 
