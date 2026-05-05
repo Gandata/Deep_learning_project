@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import json
 import random
 from pathlib import Path
@@ -86,6 +87,55 @@ class FeatureDataset(Dataset):
         label = self.labels[index]
         target = self.target_table[label]
         return feature, target, label
+
+
+class FileFeatureBatcher:
+    """Stream batches from feature files without concatenating the full split in RAM."""
+
+    def __init__(
+        self,
+        files: list[Path],
+        target_table: Tensor,
+        batch_size: int,
+        normalize_features: bool = False,
+        shuffle_files: bool = False,
+        shuffle_points: bool = False,
+    ) -> None:
+        if batch_size <= 0:
+            raise ValueError(f"`batch_size` must be positive, got {batch_size}.")
+        self.files = files
+        self.target_table = target_table.float()
+        self.batch_size = int(batch_size)
+        self.normalize_features = normalize_features
+        self.shuffle_files = shuffle_files
+        self.shuffle_points = shuffle_points
+
+    def __iter__(self):
+        file_indices = list(range(len(self.files)))
+        if self.shuffle_files:
+            random.shuffle(file_indices)
+
+        for file_index in file_indices:
+            features, labels = load_feature_file(self.files[file_index])
+            features = features.float()
+            if self.normalize_features:
+                features = F.normalize(features, dim=-1)
+            labels = labels.long()
+
+            if self.shuffle_points:
+                order = torch.randperm(features.shape[0])
+            else:
+                order = torch.arange(features.shape[0])
+
+            for start in range(0, features.shape[0], self.batch_size):
+                batch_index = order[start : start + self.batch_size]
+                batch_features = features[batch_index]
+                batch_labels = labels[batch_index]
+                batch_targets = self.target_table[batch_labels]
+                yield batch_features, batch_targets, batch_labels
+
+            del features, labels, order
+            gc.collect()
 
 
 def parse_args() -> argparse.Namespace:
@@ -190,6 +240,49 @@ def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
         )
 
     return torch.cat(feature_chunks, dim=0), torch.cat(label_chunks, dim=0)
+
+
+def inspect_feature_files(path: str | Path, split_name: str) -> tuple[list[Path], int, int]:
+    files = collect_feature_files(path)
+    detected_input_dim: int | None = None
+    total_samples = 0
+    bad_files: list[str] = []
+
+    print(f"Inspecting {split_name} files: {len(files)} found")
+    for index, file_path in enumerate(files, start=1):
+        try:
+            features, labels = load_feature_file(file_path)
+        except Exception as error:
+            bad_files.append(f"{file_path}: {error}")
+            continue
+
+        file_dim = int(features.shape[1])
+        if detected_input_dim is None:
+            detected_input_dim = file_dim
+        elif file_dim != detected_input_dim:
+            bad_files.append(
+                f"{file_path}: feature dim {file_dim} does not match expected {detected_input_dim}"
+            )
+        total_samples += int(features.shape[0])
+        print(
+            f"  [{index}/{len(files)}] {file_path.name}: "
+            f"{features.shape[0]} samples, dim={file_dim}"
+        )
+        del features, labels
+        gc.collect()
+
+    if bad_files:
+        joined = "\n".join(bad_files[:10])
+        if len(bad_files) > 10:
+            joined += f"\n... and {len(bad_files) - 10} more"
+        raise RuntimeError(
+            f"Some {split_name} feature files are invalid or inconsistent.\n{joined}"
+        )
+
+    if detected_input_dim is None:
+        raise FileNotFoundError(f"No valid {split_name} feature files found under: {path}")
+
+    return files, detected_input_dim, total_samples
 
 
 def resolve_label_texts(config: dict[str, Any]) -> list[str]:
@@ -357,16 +450,22 @@ def main() -> None:
     print(f"Using device: {device}")
 
     target_table = build_target_table(config, device=device)
-    train_features, train_labels = load_feature_split(data_cfg["train_features_path"])
-    detected_input_dim = int(train_features.shape[1])
+    train_files, detected_input_dim, train_samples = inspect_feature_files(
+        data_cfg["train_features_path"],
+        split_name="train",
+    )
     val_path = data_cfg.get("val_features_path")
-    val_split = load_feature_split(val_path) if val_path else None
-    if val_split is not None:
-        val_features, _val_labels = val_split
-        if int(val_features.shape[1]) != detected_input_dim:
+    val_files = None
+    val_samples = 0
+    if val_path:
+        val_files, val_input_dim, val_samples = inspect_feature_files(
+            val_path,
+            split_name="val",
+        )
+        if int(val_input_dim) != detected_input_dim:
             raise ValueError(
                 "Validation features do not match training feature dim: "
-                f"{val_features.shape[1]} vs {detected_input_dim}."
+                f"{val_input_dim} vs {detected_input_dim}."
             )
 
     model = build_model(
@@ -376,41 +475,9 @@ def main() -> None:
     ).to(device)
 
     normalize_features = data_cfg.get("normalize_features", False)
-    train_dataset = FeatureDataset(
-        train_features,
-        train_labels,
-        target_table=target_table.detach().cpu(),
-        normalize_features=normalize_features,
-    )
-    val_dataset = None
-    if val_split is not None:
-        val_features, val_labels = val_split
-        val_dataset = FeatureDataset(
-            val_features,
-            val_labels,
-            target_table=target_table.detach().cpu(),
-            normalize_features=normalize_features,
-        )
+    target_table_cpu = target_table.detach().cpu()
 
     batch_size = training_cfg.get("batch_size", 4096)
-    num_workers = training_cfg.get("num_workers", 0)
-
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=device.type == "cuda",
-    )
-    val_loader = None
-    if val_dataset is not None:
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=num_workers,
-            pin_memory=device.type == "cuda",
-        )
 
     optimizer = AdamW(
         model.parameters(),
@@ -440,13 +507,23 @@ def main() -> None:
     history: list[dict[str, float | int | None]] = []
 
     num_parameters = sum(parameter.numel() for parameter in model.parameters())
-    print(f"Train samples: {len(train_dataset)}")
-    if val_dataset is not None:
-        print(f"Val samples:   {len(val_dataset)}")
+    print(f"Train files:   {len(train_files)}")
+    print(f"Train samples: {train_samples}")
+    if val_files is not None:
+        print(f"Val files:     {len(val_files)}")
+        print(f"Val samples:   {val_samples}")
     print(f"Feature dim:   {detected_input_dim}")
     print(f"Model params:  {num_parameters:,}")
 
     for epoch in range(start_epoch, epochs + 1):
+        train_loader = FileFeatureBatcher(
+            train_files,
+            target_table=target_table_cpu,
+            batch_size=batch_size,
+            normalize_features=normalize_features,
+            shuffle_files=True,
+            shuffle_points=True,
+        )
         train_loss = run_epoch(
             model,
             train_loader,
@@ -458,7 +535,15 @@ def main() -> None:
         )
 
         val_loss = None
-        if val_loader is not None:
+        if val_files is not None:
+            val_loader = FileFeatureBatcher(
+                val_files,
+                target_table=target_table_cpu,
+                batch_size=batch_size,
+                normalize_features=normalize_features,
+                shuffle_files=False,
+                shuffle_points=False,
+            )
             with torch.no_grad():
                 val_loss = run_epoch(
                     model,
