@@ -40,7 +40,8 @@ class ConcertoEncoder(nn.Module):
       - `normal` or `normals` for surface normals
 
     Output:
-    - (N, feature_dim)
+    - (N, D), where D depends on the selected Concerto checkpoint and the
+      feature-recovery path used after hierarchical encoding.
 
     Notes:
     - this encoder always uses the official Concerto backend
@@ -49,7 +50,7 @@ class ConcertoEncoder(nn.Module):
 
     def __init__(
         self,
-        feature_dim: int = 256,
+        feature_dim: int | None = None,
         checkpoint_path: str | Path | None = None,
         device: str | torch.device | None = None,
         repo_id: str = "Pointcept/Concerto",
@@ -252,7 +253,9 @@ class ConcertoEncoder(nn.Module):
         feat = point.feat[point.inverse]
         feat = F.normalize(feat, dim=-1)
 
-        if feat.shape[-1] != self.feature_dim:
+        if self.feature_dim is None:
+            self.feature_dim = int(feat.shape[-1])
+        elif feat.shape[-1] != self.feature_dim:
             raise ValueError(
                 f"Concerto produced feature dim {feat.shape[-1]}, but this project "
                 f"currently expects {self.feature_dim}. "
@@ -270,7 +273,7 @@ class ConcertoEncoder(nn.Module):
 
 
 if __name__ == "__main__":
-    encoder = ConcertoEncoder(feature_dim=256)
+    encoder = ConcertoEncoder()
 
     xyzrgb = torch.randn(1024, 6)
     xyzrgb[:, 3:6] = torch.rand(1024, 3) * 255.0

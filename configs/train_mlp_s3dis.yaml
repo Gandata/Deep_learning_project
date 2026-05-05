@@ -27,7 +27,7 @@ clip:
     - "a {}"
 
 model:
-  input_dim: 256
+  input_dim: 896
   hidden_dims: [512, 512]
   output_dim: 512
   dropout: 0.1

@@ -87,6 +87,7 @@ def main():
             features = encoder(encoder_input)
 
         features_np = features.detach().cpu().numpy().astype(np.float32)
+        print(f"{room_name}: feature dim = {features_np.shape[1]}")
 
         np.savez_compressed(
             out_path,
