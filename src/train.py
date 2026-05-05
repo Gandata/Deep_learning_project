@@ -215,6 +215,75 @@ def collect_feature_files(path: str | Path) -> list[Path]:
     return files
 
 
+def inspection_cache_path(path: str | Path, split_name: str) -> Path:
+    path = Path(path)
+    if path.is_dir():
+        return path / f".train_inspection_cache_{split_name}.json"
+    return path.with_suffix(path.suffix + f".{split_name}.inspection_cache.json")
+
+
+def build_file_metadata(file_path: Path) -> dict[str, int | str]:
+    stat = file_path.stat()
+    return {
+        "path": str(file_path),
+        "size": int(stat.st_size),
+        "mtime_ns": int(stat.st_mtime_ns),
+    }
+
+
+def load_inspection_cache(
+    cache_path: Path,
+    files: list[Path],
+) -> tuple[list[Path], int, int] | None:
+    if not cache_path.exists():
+        return None
+
+    try:
+        payload = json.loads(cache_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    if payload.get("version") != 1:
+        return None
+
+    cached_files = payload.get("files")
+    if not isinstance(cached_files, list) or len(cached_files) != len(files):
+        return None
+
+    current_meta = [build_file_metadata(file_path) for file_path in files]
+    for cached, current in zip(cached_files, current_meta):
+        if not isinstance(cached, dict):
+            return None
+        if (
+            cached.get("path") != current["path"]
+            or int(cached.get("size", -1)) != current["size"]
+            or int(cached.get("mtime_ns", -1)) != current["mtime_ns"]
+        ):
+            return None
+
+    detected_input_dim = payload.get("detected_input_dim")
+    total_samples = payload.get("total_samples")
+    if not isinstance(detected_input_dim, int) or not isinstance(total_samples, int):
+        return None
+
+    return files, detected_input_dim, total_samples
+
+
+def save_inspection_cache(
+    cache_path: Path,
+    files: list[Path],
+    detected_input_dim: int,
+    total_samples: int,
+) -> None:
+    payload = {
+        "version": 1,
+        "detected_input_dim": int(detected_input_dim),
+        "total_samples": int(total_samples),
+        "files": [build_file_metadata(file_path) for file_path in files],
+    }
+    cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def infer_room_type(path: Path) -> str:
     parts = path.stem.split("_")
     if len(parts) >= 4 and parts[0] == "Area":
@@ -302,6 +371,16 @@ def inspect_feature_files(
         seed=room_type_fraction_seed,
         split_name=split_name,
     )
+    cache_path = inspection_cache_path(path, split_name)
+    cached = load_inspection_cache(cache_path, files)
+    if cached is not None:
+        cached_files, detected_input_dim, total_samples = cached
+        print(
+            f"Using cached {split_name} inspection: {len(cached_files)} files, "
+            f"{total_samples} samples, dim={detected_input_dim}"
+        )
+        return cached_files, detected_input_dim, total_samples
+
     detected_input_dim: int | None = None
     total_samples = 0
     bad_files: list[str] = []
@@ -340,6 +419,13 @@ def inspect_feature_files(
     if detected_input_dim is None:
         raise FileNotFoundError(f"No valid {split_name} feature files found under: {path}")
 
+    save_inspection_cache(
+        cache_path,
+        files=files,
+        detected_input_dim=detected_input_dim,
+        total_samples=total_samples,
+    )
+    print(f"Saved {split_name} inspection cache to: {cache_path}")
     return files, detected_input_dim, total_samples
 
 
