@@ -64,6 +64,16 @@ def main():
             "Notebook 03 does not need them, so leaving this off keeps files smaller."
         ),
     )
+    parser.add_argument(
+        "--max-points-per-chunk",
+        type=int,
+        default=100_000,
+        help=(
+            "Maximum number of points passed to Concerto in one forward pass. "
+            "Large S3DIS rooms can OOM on a T4 if encoded all at once, so extraction "
+            "is chunked by default."
+        ),
+    )
     args = parser.parse_args()
 
     device = torch.device(args.device) if args.device else torch.device(
@@ -86,6 +96,53 @@ def main():
     )
     print(f"Using encoder backend: {encoder.backend} on {device}")
 
+    def encode_room_in_chunks(sample: dict[str, np.ndarray], room_name: str) -> torch.Tensor:
+        chunk_size = args.max_points_per_chunk
+        if chunk_size is None or chunk_size <= 0:
+            chunk_size = int(sample["coord"].shape[0])
+
+        while True:
+            try:
+                feature_chunks: list[torch.Tensor] = []
+                total_points = int(sample["coord"].shape[0])
+                num_chunks = (total_points + chunk_size - 1) // chunk_size
+                print(
+                    f"{room_name}: encoding {total_points:,} points "
+                    f"in {num_chunks} chunk(s) of up to {chunk_size:,}"
+                )
+
+                for chunk_idx, start in enumerate(range(0, total_points, chunk_size), start=1):
+                    end = min(start + chunk_size, total_points)
+                    encoder_input = {
+                        "coord": sample["coord"][start:end],
+                        "color": sample["color"][start:end],
+                    }
+                    if "normal" in sample:
+                        encoder_input["normal"] = sample["normal"][start:end]
+
+                    with torch.no_grad():
+                        chunk_features = encoder(encoder_input)
+                    feature_chunks.append(chunk_features.detach().cpu())
+                    print(
+                        f"{room_name}: chunk {chunk_idx}/{num_chunks} "
+                        f"-> points [{start}:{end}) -> {tuple(chunk_features.shape)}"
+                    )
+                    if device.type == "cuda":
+                        torch.cuda.empty_cache()
+
+                return torch.cat(feature_chunks, dim=0)
+
+            except torch.OutOfMemoryError:
+                if device.type == "cuda":
+                    torch.cuda.empty_cache()
+                if chunk_size <= 16_000:
+                    raise
+                chunk_size = max(chunk_size // 2, 16_000)
+                print(
+                    f"{room_name}: CUDA OOM during extraction, retrying with smaller chunks "
+                    f"(new chunk size: {chunk_size:,})"
+                )
+
     for i in range(len(dataset)):
         sample = dataset[i]
         room_name = sample["room"].replace("/", "_")
@@ -95,18 +152,10 @@ def main():
             print(f"Skipping {room_name}, already exists.")
             continue
 
-        encoder_input = {
-            "coord": sample["coord"],
-            "color": sample["color"],
-        }
-        if "normal" in sample:
-            encoder_input["normal"] = sample["normal"]
-
-        with torch.no_grad():
-            features = encoder(encoder_input)
+        features = encode_room_in_chunks(sample, room_name)
 
         feature_dtype = np.float16 if args.feature_dtype == "float16" else np.float32
-        features_np = features.detach().cpu().numpy().astype(feature_dtype, copy=False)
+        features_np = features.numpy().astype(feature_dtype, copy=False)
         labels_np = sample["label"].astype(np.uint8, copy=False)
         print(f"{room_name}: feature dim = {features_np.shape[1]}")
         payload = {
