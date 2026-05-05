@@ -13,6 +13,9 @@ from src.translation_head import MLPTranslationHead
 from src.clip_utils import CLIPTextEncoder, init_hf, DEFAULT_PROMPT_TEMPLATES
 from src.dataset import LABEL_TEXT, NUM_CLASSES
 
+FEATURE_KEYS = ("features", "feature", "feat")
+LABEL_KEYS = ("labels", "label", "segment")
+
 
 def compute_metrics(pred_labels, true_labels, num_classes=13):
     oa = np.mean(pred_labels == true_labels)
@@ -30,7 +33,18 @@ def compute_metrics(pred_labels, true_labels, num_classes=13):
     return oa, miou, ious
 
 
-def build_model_from_checkpoint(checkpoint_path: str | None, device: torch.device) -> MLPTranslationHead:
+def choose_key(candidates: tuple[str, ...], names: list[str], path: Path) -> str:
+    for candidate in candidates:
+        if candidate in names:
+            return candidate
+    raise KeyError(f"Could not find any of {candidates} in {path}. Available keys: {names}")
+
+
+def build_model_from_checkpoint(
+    checkpoint_path: str | None,
+    device: torch.device,
+    inferred_input_dim: int | None = None,
+) -> MLPTranslationHead:
     checkpoint = None
     if checkpoint_path:
         checkpoint = torch.load(checkpoint_path, map_location=device)
@@ -38,7 +52,7 @@ def build_model_from_checkpoint(checkpoint_path: str | None, device: torch.devic
     if checkpoint and "config" in checkpoint:
         model_cfg = checkpoint["config"].get("model", {})
         model = MLPTranslationHead(
-            input_dim=model_cfg.get("input_dim", 256),
+            input_dim=model_cfg.get("input_dim", inferred_input_dim or 256),
             hidden_dims=model_cfg.get("hidden_dims", [512, 512]),
             output_dim=model_cfg.get("output_dim", 512),
             dropout=model_cfg.get("dropout", 0.1),
@@ -46,7 +60,11 @@ def build_model_from_checkpoint(checkpoint_path: str | None, device: torch.devic
             normalize_output=model_cfg.get("normalize_output", True),
         )
     else:
-        model = MLPTranslationHead(input_dim=256, hidden_dims=[512, 512], output_dim=512)
+        model = MLPTranslationHead(
+            input_dim=inferred_input_dim or 256,
+            hidden_dims=[512, 512],
+            output_dim=512,
+        )
 
     if checkpoint:
         state_dict = checkpoint.get("model_state_dict", checkpoint)
@@ -104,19 +122,37 @@ def main():
         normalize=True,
     ).to(device)
 
-    model = build_model_from_checkpoint(args.checkpoint, device=device)
+    all_preds = []
+    all_labels = []
+
+    feature_files = sorted(features_dir.glob("*.npz"))
+    if not feature_files:
+        print("No features found to evaluate.")
+        return
+
+    with np.load(feature_files[0]) as first_data:
+        names = list(first_data.keys())
+        feature_key = choose_key(FEATURE_KEYS, names, feature_files[0])
+        inferred_input_dim = int(first_data[feature_key].shape[1])
+
+    model = build_model_from_checkpoint(
+        args.checkpoint,
+        device=device,
+        inferred_input_dim=inferred_input_dim,
+    )
     if args.checkpoint:
         print(f"Loaded translation head from {args.checkpoint}")
     else:
         print("Warning: evaluating with an untrained translation head.")
+    print(f"Detected feature dim: {inferred_input_dim}")
 
-    all_preds = []
-    all_labels = []
-
-    for npz_file in sorted(features_dir.glob("*.npz")):
+    for npz_file in feature_files:
         data = np.load(npz_file)
-        features = torch.from_numpy(data["features"]).float().to(device)
-        labels = data["labels"]
+        names = list(data.keys())
+        feature_key = choose_key(FEATURE_KEYS, names, npz_file)
+        label_key = choose_key(LABEL_KEYS, names, npz_file)
+        features = torch.from_numpy(data[feature_key]).float().to(device)
+        labels = data[label_key]
 
         with torch.no_grad():
             pred_clip = model(features)
@@ -127,10 +163,6 @@ def main():
         all_preds.append(pred_classes)
         all_labels.append(labels)
         print(f"Evaluated {npz_file.name}")
-
-    if not all_preds:
-        print("No features found to evaluate.")
-        return
 
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)

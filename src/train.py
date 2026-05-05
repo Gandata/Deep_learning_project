@@ -214,10 +214,26 @@ def build_target_table(config: dict[str, Any], device: torch.device) -> Tensor:
     return target_table.to(device)
 
 
-def build_model(config: dict[str, Any], target_dim: int) -> MLPTranslationHead:
+def build_model(
+    config: dict[str, Any],
+    target_dim: int,
+    detected_input_dim: int | None = None,
+) -> MLPTranslationHead:
     model_cfg = config.get("model", {})
+    configured_input_dim = model_cfg.get("input_dim")
+    if configured_input_dim is None:
+        if detected_input_dim is None:
+            configured_input_dim = 256
+        else:
+            configured_input_dim = detected_input_dim
+    elif detected_input_dim is not None and int(configured_input_dim) != int(detected_input_dim):
+        raise ValueError(
+            "Config/model input_dim does not match extracted features: "
+            f"config says {configured_input_dim}, but loaded features have dim {detected_input_dim}."
+        )
+
     return MLPTranslationHead(
-        input_dim=model_cfg.get("input_dim", 256),
+        input_dim=int(configured_input_dim),
         hidden_dims=model_cfg.get("hidden_dims", [512, 512]),
         output_dim=model_cfg.get("output_dim", target_dim),
         dropout=model_cfg.get("dropout", 0.1),
@@ -326,11 +342,23 @@ def main() -> None:
     print(f"Using device: {device}")
 
     target_table = build_target_table(config, device=device)
-    model = build_model(config, target_dim=target_table.shape[1]).to(device)
-
     train_features, train_labels = load_feature_split(data_cfg["train_features_path"])
+    detected_input_dim = int(train_features.shape[1])
     val_path = data_cfg.get("val_features_path")
     val_split = load_feature_split(val_path) if val_path else None
+    if val_split is not None:
+        val_features, _val_labels = val_split
+        if int(val_features.shape[1]) != detected_input_dim:
+            raise ValueError(
+                "Validation features do not match training feature dim: "
+                f"{val_features.shape[1]} vs {detected_input_dim}."
+            )
+
+    model = build_model(
+        config,
+        target_dim=target_table.shape[1],
+        detected_input_dim=detected_input_dim,
+    ).to(device)
 
     normalize_features = data_cfg.get("normalize_features", False)
     train_dataset = FeatureDataset(
@@ -400,6 +428,7 @@ def main() -> None:
     print(f"Train samples: {len(train_dataset)}")
     if val_dataset is not None:
         print(f"Val samples:   {len(val_dataset)}")
+    print(f"Feature dim:   {detected_input_dim}")
     print(f"Model params:  {num_parameters:,}")
 
     for epoch in range(start_epoch, epochs + 1):

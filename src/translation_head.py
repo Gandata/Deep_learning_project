@@ -23,9 +23,12 @@ class MLPTranslationHead(nn.Module):
     """
     MLP that projects 3D point features into CLIP text embedding space.
 
-    Default contract:
-    - input:  (..., 256)
+    Contract:
+    - input:  (..., D)
     - output: (..., 512)
+
+    `D` is configurable through `input_dim`. In this project it is determined by
+    the extracted Concerto feature files and the training config.
 
     It supports both point-wise tensors `(N, D)` and batched point clouds
     `(B, N, D)`.
@@ -100,10 +103,10 @@ class MLPTranslationHead(nn.Module):
 
 
 if __name__ == "__main__":
-    model = MLPTranslationHead()
+    model = MLPTranslationHead(input_dim=896)
 
-    single = torch.randn(1024, 256)
-    batch = torch.randn(2, 1024, 256)
+    single = torch.randn(1024, 896)
+    batch = torch.randn(2, 1024, 896)
 
     out_single = model(single)
     out_batch = model(batch)
