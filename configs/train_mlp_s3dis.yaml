@@ -38,7 +38,7 @@ training:
   seed: 42
   device: null
   epochs: 50
-  batch_size: 4096
+  batch_size: 1024
   num_workers: 0
   learning_rate: 0.001
   weight_decay: 0.0001
