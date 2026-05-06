@@ -73,6 +73,11 @@ def parse_args():
         default=True,
         help="Remove statistical outliers (default: True)",
     )
+    parser.add_argument(
+        "--s3dis_input",
+        action="store_true",
+        help="If set, treats --input as a pre-processed S3DIS directory containing coord.npy and color.npy",
+    )
     return parser.parse_args()
 
 
@@ -168,10 +173,29 @@ def main():
     output_path = Path(args.output)
 
     if not input_path.exists():
-        raise FileNotFoundError(f"Input file not found: {input_path}")
+        raise FileNotFoundError(f"Input path not found: {input_path}")
 
-    # 1. Load
-    pcd = load_ply(input_path)
+    if args.s3dis_input:
+        if not input_path.is_dir():
+            raise FileNotFoundError(f"Input path must be a directory in s3dis mode: {input_path}")
+        coord_path = input_path / "coord.npy"
+        color_path = input_path / "color.npy"
+        if not coord_path.exists() or not color_path.exists():
+            raise FileNotFoundError(f"coord.npy and color.npy must exist in {input_path}")
+        
+        log.info(f"Loading S3DIS processed room from {input_path}")
+        coord = np.load(coord_path).astype(np.float64)
+        color = np.load(color_path).astype(np.float64)
+        if color.max() > 1.0:
+            color /= 255.0
+            
+        pcd = o3d.geometry.PointCloud()
+        pcd.points = o3d.utility.Vector3dVector(coord)
+        pcd.colors = o3d.utility.Vector3dVector(color)
+        log.info(f"  Loaded {len(coord):,} points")
+    else:
+        # 1. Load
+        pcd = load_ply(input_path)
 
     # 2. Remove outliers
     if args.remove_outliers:
