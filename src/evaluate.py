@@ -6,6 +6,7 @@ import sys
 import numpy as np
 import torch
 import torch.nn.functional as F
+import yaml
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))
 
@@ -38,6 +39,12 @@ def choose_key(candidates: tuple[str, ...], names: list[str], path: Path) -> str
         if candidate in names:
             return candidate
     raise KeyError(f"Could not find any of {candidates} in {path}. Available keys: {names}")
+
+
+def load_yaml(path: str | Path) -> dict:
+    path = Path(path)
+    with path.open("r", encoding="utf-8") as handle:
+        return yaml.safe_load(handle)
 
 
 def build_model_from_checkpoint(
@@ -77,17 +84,18 @@ def build_model_from_checkpoint(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--features_dir", type=str, default="features/s3dis_area5")
+    parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--features_dir", type=str, default=None)
     parser.add_argument(
         "--clip_model",
         type=str,
-        default="ViT-B-32",
+        default=None,
         help="CLIP model to use for generating text embeddings.",
     )
     parser.add_argument(
         "--clip_pretrained",
         type=str,
-        default="openai",
+        default=None,
         help="Pretrained weights for CLIP.",
     )
     parser.add_argument(
@@ -99,7 +107,20 @@ def main():
     parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
 
-    features_dir = Path(args.features_dir)
+    checkpoint_config = None
+    checkpoint = None
+    if args.checkpoint:
+        checkpoint = torch.load(args.checkpoint, map_location="cpu")
+        checkpoint_config = checkpoint.get("config") if isinstance(checkpoint, dict) else None
+
+    run_config = checkpoint_config or {}
+    if args.config:
+        run_config = load_yaml(args.config)
+
+    data_cfg = run_config.get("data", {})
+    clip_cfg = run_config.get("clip", {})
+
+    features_dir = Path(args.features_dir or data_cfg.get("train_features_path", "features/s3dis_area5"))
     if not features_dir.exists():
         print(f"Features directory {features_dir} not found. Run extract_features.py first.")
         return
@@ -109,16 +130,24 @@ def main():
     )
 
     init_hf()
-    print(f"Loading CLIP model {args.clip_model} ({args.clip_pretrained})...")
+    clip_model = args.clip_model or clip_cfg.get("model_name", "ViT-B-32")
+    clip_pretrained = args.clip_pretrained or clip_cfg.get("pretrained", "openai")
+    clip_templates = clip_cfg.get("templates", DEFAULT_PROMPT_TEMPLATES)
+    class_descriptions = data_cfg.get(
+        "label_texts",
+        [LABEL_TEXT[i] for i in range(NUM_CLASSES)],
+    )
+    normalize_features = bool(data_cfg.get("normalize_features", False))
+
+    print(f"Loading CLIP model {clip_model} ({clip_pretrained})...")
     clip_encoder = CLIPTextEncoder(
-        model_name=args.clip_model,
-        pretrained=args.clip_pretrained,
+        model_name=clip_model,
+        pretrained=clip_pretrained,
         device=device,
     )
-    class_descriptions = [LABEL_TEXT[i] for i in range(NUM_CLASSES)]
     clip_embeddings_torch = clip_encoder.encode_labels(
         class_descriptions,
-        templates=DEFAULT_PROMPT_TEMPLATES,
+        templates=clip_templates,
         normalize=True,
     ).to(device)
 
@@ -145,6 +174,7 @@ def main():
     else:
         print("Warning: evaluating with an untrained translation head.")
     print(f"Detected feature dim: {inferred_input_dim}")
+    print(f"Normalize input features: {normalize_features}")
 
     for npz_file in feature_files:
         data = np.load(npz_file)
@@ -152,6 +182,8 @@ def main():
         feature_key = choose_key(FEATURE_KEYS, names, npz_file)
         label_key = choose_key(LABEL_KEYS, names, npz_file)
         features = torch.from_numpy(data[feature_key]).float().to(device)
+        if normalize_features:
+            features = F.normalize(features, dim=-1)
         labels = data[label_key]
 
         with torch.no_grad():
@@ -167,7 +199,7 @@ def main():
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
 
-    oa, miou, ious = compute_metrics(all_preds, all_labels)
+    oa, miou, ious = compute_metrics(all_preds, all_labels, num_classes=len(class_descriptions))
 
     print("\n--- EVALUATION RESULTS ---")
     print(f"Overall Accuracy (OA): {oa:.4f}")
