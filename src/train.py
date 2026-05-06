@@ -243,7 +243,7 @@ def load_inspection_cache(
     except Exception:
         return None
 
-    if payload.get("version") != 1:
+    if payload.get("version") not in {1, 2}:
         return None
 
     cached_files = payload.get("files")
@@ -257,7 +257,6 @@ def load_inspection_cache(
         if (
             cached.get("path") != current["path"]
             or int(cached.get("size", -1)) != current["size"]
-            or int(cached.get("mtime_ns", -1)) != current["mtime_ns"]
         ):
             return None
 
@@ -276,7 +275,7 @@ def save_inspection_cache(
     total_samples: int,
 ) -> None:
     payload = {
-        "version": 1,
+        "version": 2,
         "detected_input_dim": int(detected_input_dim),
         "total_samples": int(total_samples),
         "files": [build_file_metadata(file_path) for file_path in files],
