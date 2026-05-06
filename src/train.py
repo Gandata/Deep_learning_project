@@ -140,6 +140,111 @@ class FileFeatureBatcher:
             gc.collect()
 
 
+class GPUBufferedBatcher:
+    """Load multiple rooms directly onto GPU, batch from GPU-resident data.
+
+    This maximises GPU memory usage and eliminates per-batch CPU→GPU transfer.
+    Rooms are loaded in groups that fit within `gpu_budget_gb`; within each
+    group the points are globally shuffled on-GPU and yielded as large batches.
+    The T4 has 15 GB VRAM — we aim to use ~12 GB for data.
+    """
+
+    def __init__(
+        self,
+        files: list[Path],
+        target_table: Tensor,
+        batch_size: int,
+        device: torch.device,
+        normalize_features: bool = False,
+        shuffle_files: bool = False,
+        shuffle_points: bool = False,
+        gpu_budget_gb: float = 12.0,
+        store_dtype: torch.dtype = torch.float16,
+    ) -> None:
+        if batch_size <= 0:
+            raise ValueError(f"`batch_size` must be positive, got {batch_size}.")
+        self.files = files
+        self.target_table = target_table.to(device=device, dtype=store_dtype)
+        self.batch_size = int(batch_size)
+        self.device = device
+        self.normalize_features = normalize_features
+        self.shuffle_files = shuffle_files
+        self.shuffle_points = shuffle_points
+        self.gpu_budget_bytes = int(gpu_budget_gb * 1024**3)
+        self.store_dtype = store_dtype
+
+    def _estimate_bytes(self, n_points: int, feat_dim: int) -> int:
+        """Estimate GPU bytes for features + labels of n_points."""
+        dtype_size = 2 if self.store_dtype == torch.float16 else 4
+        return n_points * (feat_dim * dtype_size + 8)  # labels = int64
+
+    def __iter__(self):
+        file_indices = list(range(len(self.files)))
+        if self.shuffle_files:
+            random.shuffle(file_indices)
+
+        # Group files into GPU-sized buffers
+        buffer_files: list[int] = []
+        buffer_bytes = 0
+
+        def flush_buffer(file_list: list[int]):
+            """Load files in file_list to GPU, yield batches, free memory."""
+            if not file_list:
+                return
+
+            feat_chunks: list[Tensor] = []
+            label_chunks: list[Tensor] = []
+
+            for fi in file_list:
+                features, labels = load_feature_file(self.files[fi])
+                features = features.to(device=self.device, dtype=self.store_dtype,
+                                       non_blocking=True)
+                if self.normalize_features:
+                    # normalize in float32 then cast back
+                    features = F.normalize(features.float(), dim=-1).to(self.store_dtype)
+                labels = labels.to(device=self.device, non_blocking=True)
+                feat_chunks.append(features)
+                label_chunks.append(labels)
+
+            all_features = torch.cat(feat_chunks, dim=0)
+            all_labels = torch.cat(label_chunks, dim=0)
+            del feat_chunks, label_chunks
+
+            n = all_features.shape[0]
+            if self.shuffle_points:
+                order = torch.randperm(n, device=self.device)
+                all_features = all_features[order]
+                all_labels = all_labels[order]
+                del order
+
+            for start in range(0, n, self.batch_size):
+                end = min(start + self.batch_size, n)
+                batch_features = all_features[start:end]
+                batch_labels = all_labels[start:end]
+                batch_targets = self.target_table[batch_labels]
+                yield batch_features, batch_targets, batch_labels
+
+            del all_features, all_labels
+            torch.cuda.empty_cache()
+
+        for fi in file_indices:
+            # Peek at file to estimate size (use disk size as proxy)
+            file_size = self.files[fi].stat().st_size
+            # Rough estimate: npz float16 expands ~1.1x; we store as store_dtype
+            est_gpu = int(file_size * 1.2)
+
+            if buffer_bytes + est_gpu > self.gpu_budget_bytes and buffer_files:
+                yield from flush_buffer(buffer_files)
+                buffer_files = []
+                buffer_bytes = 0
+
+            buffer_files.append(fi)
+            buffer_bytes += est_gpu
+
+        # Flush remaining
+        yield from flush_buffer(buffer_files)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Train the MLP translation head.")
     parser.add_argument(
@@ -498,12 +603,14 @@ def compute_loss(
 
 def run_epoch(
     model: nn.Module,
-    loader: DataLoader,
+    loader,
     device: torch.device,
     loss_name: str,
     optimizer: AdamW | None = None,
     mse_weight: float = 1.0,
     cosine_weight: float = 1.0,
+    scaler: torch.amp.GradScaler | None = None,
+    use_amp: bool = False,
 ) -> float:
     training = optimizer is not None
     model.train(training)
@@ -512,22 +619,29 @@ def run_epoch(
     total_samples = 0
 
     for features, targets, _labels in loader:
-        features = features.to(device, non_blocking=True)
-        targets = targets.to(device, non_blocking=True)
+        # GPUBufferedBatcher yields GPU tensors; FileFeatureBatcher yields CPU tensors
+        features = features.to(device, non_blocking=True).float()
+        targets = targets.to(device, non_blocking=True).float()
 
-        predictions = model(features)
-        loss = compute_loss(
-            predictions,
-            targets,
-            loss_name=loss_name,
-            mse_weight=mse_weight,
-            cosine_weight=cosine_weight,
-        )
+        with torch.amp.autocast(device_type="cuda", enabled=use_amp):
+            predictions = model(features)
+            loss = compute_loss(
+                predictions,
+                targets,
+                loss_name=loss_name,
+                mse_weight=mse_weight,
+                cosine_weight=cosine_weight,
+            )
 
         if training:
             optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-            optimizer.step()
+            if scaler is not None:
+                scaler.scale(loss).backward()
+                scaler.step(optimizer)
+                scaler.update()
+            else:
+                loss.backward()
+                optimizer.step()
 
         batch_size = features.shape[0]
         total_loss += loss.item() * batch_size
@@ -675,6 +789,17 @@ def main() -> None:
     normalize_features = data_cfg.get("normalize_features", False)
     target_table_cpu = target_table.detach().cpu()
 
+    # --- GPU buffer & AMP settings ---
+    use_gpu_buffer = training_cfg.get("gpu_buffer", False) and device.type == "cuda"
+    gpu_budget_gb = training_cfg.get("gpu_budget_gb", 12.0)
+    use_amp = training_cfg.get("use_amp", False) and device.type == "cuda"
+    scaler = torch.amp.GradScaler("cuda") if use_amp else None
+    if use_gpu_buffer:
+        print(
+            f"GPU-buffered training enabled: budget={gpu_budget_gb:.1f} GB, "
+            f"AMP={'on' if use_amp else 'off'}"
+        )
+
     batch_size = training_cfg.get("batch_size", 4096)
 
     optimizer = AdamW(
@@ -718,14 +843,26 @@ def main() -> None:
     for epoch in range(start_epoch, epochs + 1):
         current_lr = optimizer.param_groups[0]["lr"]
 
-        train_loader = FileFeatureBatcher(
-            train_files,
-            target_table=target_table_cpu,
-            batch_size=batch_size,
-            normalize_features=normalize_features,
-            shuffle_files=True,
-            shuffle_points=True,
-        )
+        if use_gpu_buffer:
+            train_loader = GPUBufferedBatcher(
+                train_files,
+                target_table=target_table_cpu,
+                batch_size=batch_size,
+                device=device,
+                normalize_features=normalize_features,
+                shuffle_files=True,
+                shuffle_points=True,
+                gpu_budget_gb=gpu_budget_gb,
+            )
+        else:
+            train_loader = FileFeatureBatcher(
+                train_files,
+                target_table=target_table_cpu,
+                batch_size=batch_size,
+                normalize_features=normalize_features,
+                shuffle_files=True,
+                shuffle_points=True,
+            )
         train_loss = run_epoch(
             model,
             train_loader,
@@ -734,18 +871,32 @@ def main() -> None:
             optimizer=optimizer,
             mse_weight=mse_weight,
             cosine_weight=cosine_weight,
+            scaler=scaler,
+            use_amp=use_amp,
         )
 
         val_loss = None
         if val_files is not None:
-            val_loader = FileFeatureBatcher(
-                val_files,
-                target_table=target_table_cpu,
-                batch_size=batch_size,
-                normalize_features=normalize_features,
-                shuffle_files=False,
-                shuffle_points=False,
-            )
+            if use_gpu_buffer:
+                val_loader = GPUBufferedBatcher(
+                    val_files,
+                    target_table=target_table_cpu,
+                    batch_size=batch_size,
+                    device=device,
+                    normalize_features=normalize_features,
+                    shuffle_files=False,
+                    shuffle_points=False,
+                    gpu_budget_gb=gpu_budget_gb,
+                )
+            else:
+                val_loader = FileFeatureBatcher(
+                    val_files,
+                    target_table=target_table_cpu,
+                    batch_size=batch_size,
+                    normalize_features=normalize_features,
+                    shuffle_files=False,
+                    shuffle_points=False,
+                )
             with torch.no_grad():
                 val_loss = run_epoch(
                     model,
@@ -755,6 +906,8 @@ def main() -> None:
                     optimizer=None,
                     mse_weight=mse_weight,
                     cosine_weight=cosine_weight,
+                    scaler=None,
+                    use_amp=use_amp,
                 )
 
         # Step LR scheduler after each epoch

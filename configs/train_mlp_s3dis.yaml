@@ -50,7 +50,7 @@ training:
   seed: 42
   device: null
   epochs: 30
-  batch_size: 16384
+  batch_size: 65536
   learning_rate: 0.001
   weight_decay: 0.0001
   loss: "mse+cosine"
@@ -68,3 +68,11 @@ training:
 
   # torch.compile the model for ~5-10% speedup on PyTorch 2.x
   compile_model: true
+
+  # GPU-resident data buffer: load multiple rooms onto GPU at once (~12 GB)
+  # Eliminates CPU→GPU transfer bottleneck — T4 has 15 GB VRAM
+  gpu_buffer: true
+  gpu_budget_gb: 12.0
+
+  # AMP (Automatic Mixed Precision): T4 tensor cores → ~8x faster float16 matmul
+  use_amp: true
