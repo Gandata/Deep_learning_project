@@ -48,6 +48,8 @@ def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device,
         query_text=text_query,
         top_percent=top_percent,
         colorscale=DEMO_QUERY_COLORSCALE,
+        show_colorbar=True,
+        reverse_colorbar=True,
     )
     return fig
 

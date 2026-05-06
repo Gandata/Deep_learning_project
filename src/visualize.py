@@ -252,6 +252,8 @@ def plot_heatmap(
     colorscale: str = "Turbo",
     top_percent: Optional[float] = None,
     low_opacity: float = 0.08,
+    show_colorbar: bool = True,
+    reverse_colorbar: bool = False,
 ) -> go.Figure:
     """
     Plot a 3D heatmap over a point cloud using continuous similarity scores (based on a specific query). 
@@ -281,6 +283,7 @@ def plot_heatmap(
         title = f'Heatmap for query: "{query_text}"'
 
     fig = go.Figure()
+    show_trace_colorbar = show_colorbar and not reverse_colorbar
 
     if top_percent is None:
         fig.add_trace(
@@ -298,7 +301,7 @@ def plot_heatmap(
                         title="score",
                         thickness=18,
                     ),
-                    showscale=True,
+                    showscale=show_trace_colorbar,
                 ),
                 name="heatmap",
                 showlegend=False,
@@ -359,7 +362,7 @@ def plot_heatmap(
                         title="score",
                         thickness=18,
                     ),
-                    showscale=True,
+                    showscale=show_trace_colorbar,
                 ),
                 name="top points",
                 showlegend=False,
@@ -369,6 +372,32 @@ def plot_heatmap(
                     "y=%{y:.3f}<br>"
                     "z=%{z:.3f}<extra></extra>"
                 ),
+            )
+        )
+
+    if show_colorbar and reverse_colorbar:
+        fig.add_trace(
+            go.Scatter3d(
+                x=[x[0], x[0]],
+                y=[y[0], y[0]],
+                z=[z[0], z[0]],
+                mode="markers",
+                marker=dict(
+                    size=0.01,
+                    color=[float(scores.min()), float(scores.max())],
+                    cmin=float(scores.min()),
+                    cmax=float(scores.max()),
+                    colorscale=colorscale,
+                    reversescale=True,
+                    opacity=0.0,
+                    colorbar=dict(
+                        title="score",
+                        thickness=18,
+                    ),
+                    showscale=True,
+                ),
+                showlegend=False,
+                hoverinfo="skip",
             )
         )
 
