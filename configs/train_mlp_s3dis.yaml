@@ -67,7 +67,7 @@ training:
   scheduler_min_lr: 0.00001
 
   # torch.compile the model for ~5-10% speedup on PyTorch 2.x
-  compile_model: true
+  compile_model: false
 
   # GPU-resident data buffer: load multiple rooms onto GPU at once (~12 GB)
   # Eliminates CPU→GPU transfer bottleneck — T4 has 15 GB VRAM

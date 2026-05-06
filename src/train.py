@@ -144,8 +144,8 @@ class GPUBufferedBatcher:
     """Load multiple rooms directly onto GPU, batch from GPU-resident data.
 
     This maximises GPU memory usage and eliminates per-batch CPU→GPU transfer.
-    Rooms are loaded one-by-one until the GPU budget is reached; then all
-    loaded points are shuffled on-GPU and yielded as large batches.
+    Rooms are loaded one-by-one; before each upload we check free GPU memory.
+    Batches are yielded via random-index slicing (no full-tensor shuffle copy).
     """
 
     def __init__(
@@ -172,10 +172,10 @@ class GPUBufferedBatcher:
         self.gpu_budget_bytes = int(gpu_budget_gb * 1024**3)
         self.store_dtype = store_dtype
 
-    @staticmethod
-    def _gpu_used() -> int:
-        """Return current GPU memory allocated by PyTorch (bytes)."""
-        return torch.cuda.memory_allocated()
+    def _gpu_free(self) -> int:
+        """Return genuinely free GPU memory (bytes)."""
+        torch.cuda.synchronize()
+        return torch.cuda.mem_get_info(self.device)[0]  # (free, total)
 
     def _load_room_to_gpu(self, path: Path) -> tuple[Tensor, Tensor]:
         """Load one .npz room, normalize on CPU, then upload float16 to GPU."""
@@ -188,6 +188,15 @@ class GPUBufferedBatcher:
         labels = labels.to(device=self.device, non_blocking=True)
         return features, labels
 
+    def _buffer_bytes(self, feat_chunks, label_chunks) -> int:
+        """Total GPU bytes used by the current buffer chunks."""
+        total = 0
+        for t in feat_chunks:
+            total += t.nelement() * t.element_size()
+        for t in label_chunks:
+            total += t.nelement() * t.element_size()
+        return total
+
     def __iter__(self):
         file_indices = list(range(len(self.files)))
         if self.shuffle_files:
@@ -195,24 +204,34 @@ class GPUBufferedBatcher:
 
         idx = 0
         while idx < len(file_indices):
-            # --- Fill GPU buffer with rooms until budget is reached ---
             feat_chunks: list[Tensor] = []
             label_chunks: list[Tensor] = []
-            mem_before = self._gpu_used()
 
             while idx < len(file_indices):
+                # Check: do we already have enough data?
+                if self._buffer_bytes(feat_chunks, label_chunks) >= self.gpu_budget_bytes:
+                    break
+
+                # Check: is there enough free GPU memory for another room?
+                # Keep 2 GB free for forward/backward pass, batch targets, etc.
+                free = self._gpu_free()
+                if feat_chunks and free < 2 * 1024**3:
+                    break
+
                 fi = file_indices[idx]
-                features, labels = self._load_room_to_gpu(self.files[fi])
-                torch.cuda.synchronize()
+                try:
+                    features, labels = self._load_room_to_gpu(self.files[fi])
+                    torch.cuda.synchronize()
+                except torch.OutOfMemoryError:
+                    torch.cuda.empty_cache()
+                    if feat_chunks:
+                        break  # flush current buffer, will retry this room
+                    else:
+                        raise  # single room doesn't fit — unrecoverable
 
                 feat_chunks.append(features)
                 label_chunks.append(labels)
                 idx += 1
-
-                mem_now = self._gpu_used()
-                data_loaded = mem_now - mem_before
-                if data_loaded >= self.gpu_budget_bytes:
-                    break  # buffer full
 
             if not feat_chunks:
                 break
@@ -222,20 +241,24 @@ class GPUBufferedBatcher:
             del feat_chunks, label_chunks
 
             n = all_features.shape[0]
+
+            # Random-index batching: generate shuffled indices, then slice
+            # into the original tensor per-batch. This avoids the 2× peak
+            # memory cost of physically reordering the entire buffer.
             if self.shuffle_points:
                 order = torch.randperm(n, device=self.device)
-                all_features = all_features[order]
-                all_labels = all_labels[order]
-                del order
+            else:
+                order = torch.arange(n, device=self.device)
 
             for start in range(0, n, self.batch_size):
                 end = min(start + self.batch_size, n)
-                batch_features = all_features[start:end]
-                batch_labels = all_labels[start:end]
+                batch_idx = order[start:end]
+                batch_features = all_features[batch_idx]
+                batch_labels = all_labels[batch_idx]
                 batch_targets = self.target_table[batch_labels]
                 yield batch_features, batch_targets, batch_labels
 
-            del all_features, all_labels
+            del all_features, all_labels, order
             torch.cuda.empty_cache()
 
 
