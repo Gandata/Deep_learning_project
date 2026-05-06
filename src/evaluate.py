@@ -108,7 +108,7 @@ def main():
     parser.add_argument(
         "--results_dir",
         type=str,
-        default="results/evaluation",
+        default="results/evaluation/04",
         help="Directory where evaluation outputs will be saved.",
     )
     parser.add_argument(
