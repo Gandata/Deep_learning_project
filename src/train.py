@@ -4,6 +4,7 @@ import argparse
 import gc
 import json
 import math
+import os
 import random
 from pathlib import Path
 import sys
@@ -857,15 +858,40 @@ def main() -> None:
     save_best = training_cfg.get("save_best", True)
     metrics_path = training_cfg.get("metrics_path")
 
+    # --- Diagnostic: Verify checkpoint path (especially for Drive symlinks) ---
+    print(f"Checkpoint directory: {checkpoint_dir.absolute()}")
+    try:
+        # Check if any parent is a symlink
+        current = checkpoint_dir
+        while current != current.parent:
+            if current.is_symlink():
+                target = os.readlink(current)
+                print(f"  [Diagnostic] Component '{current}' is a symlink to: {target}")
+                if not Path(target).exists() and not Path(current).resolve().exists():
+                    print(f"  [WARNING] Symlink '{current}' appears to be BROKEN!")
+            current = current.parent
+        
+        checkpoint_dir.mkdir(parents=True, exist_ok=True)
+        test_file = checkpoint_dir / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+        print(f"  [Diagnostic] Directory is writable.")
+    except Exception as e:
+        print(f"  [ERROR] Checkpoint directory issue: {e}")
+        print("  Checkpoints might NOT be saved correctly!")
+
     best_val_loss = float("inf")
     history: list[dict[str, float | int | None]] = []
 
+    train_samples_str = str(train_samples) if inspect_files else "unknown (inspection skipped)"
+    val_samples_str = str(val_samples) if inspect_files else "unknown (inspection skipped)"
+
     num_parameters = sum(parameter.numel() for parameter in model.parameters())
     print(f"Train files:   {len(train_files)}")
-    print(f"Train samples: {train_samples}")
+    print(f"Train samples: {train_samples_str}")
     if val_files is not None:
         print(f"Val files:     {len(val_files)}")
-        print(f"Val samples:   {val_samples}")
+        print(f"Val samples:   {val_samples_str}")
     print(f"Feature dim:   {detected_input_dim}")
     print(f"Model params:  {num_parameters:,}")
 
