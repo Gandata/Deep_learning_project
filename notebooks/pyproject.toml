@@ -24,6 +24,7 @@ dependencies = [
     "gradio",
     "numpy==1.26.4",
     "plotly",
+    "kaleido",
     "scikit-learn",
     "dotenv",
     "python-dotenv",
