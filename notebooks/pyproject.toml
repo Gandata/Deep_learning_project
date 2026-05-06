@@ -23,6 +23,8 @@ dependencies = [
     "trimesh",
     "gradio",
     "numpy==1.26.4",
+    "plotly",
+    "scikit-learn",
     "dotenv",
     "python-dotenv",
     "open_clip_torch",
