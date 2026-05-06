@@ -144,9 +144,8 @@ class GPUBufferedBatcher:
     """Load multiple rooms directly onto GPU, batch from GPU-resident data.
 
     This maximises GPU memory usage and eliminates per-batch CPU→GPU transfer.
-    Rooms are loaded in groups that fit within `gpu_budget_gb`; within each
-    group the points are globally shuffled on-GPU and yielded as large batches.
-    The T4 has 15 GB VRAM — we aim to use ~12 GB for data.
+    Rooms are loaded one-by-one until the GPU budget is reached; then all
+    loaded points are shuffled on-GPU and yielded as large batches.
     """
 
     def __init__(
@@ -158,7 +157,7 @@ class GPUBufferedBatcher:
         normalize_features: bool = False,
         shuffle_files: bool = False,
         shuffle_points: bool = False,
-        gpu_budget_gb: float = 12.0,
+        gpu_budget_gb: float = 10.0,
         store_dtype: torch.dtype = torch.float16,
     ) -> None:
         if batch_size <= 0:
@@ -173,38 +172,50 @@ class GPUBufferedBatcher:
         self.gpu_budget_bytes = int(gpu_budget_gb * 1024**3)
         self.store_dtype = store_dtype
 
-    def _estimate_bytes(self, n_points: int, feat_dim: int) -> int:
-        """Estimate GPU bytes for features + labels of n_points."""
-        dtype_size = 2 if self.store_dtype == torch.float16 else 4
-        return n_points * (feat_dim * dtype_size + 8)  # labels = int64
+    @staticmethod
+    def _gpu_used() -> int:
+        """Return current GPU memory allocated by PyTorch (bytes)."""
+        return torch.cuda.memory_allocated()
+
+    def _load_room_to_gpu(self, path: Path) -> tuple[Tensor, Tensor]:
+        """Load one .npz room, normalize on CPU, then upload float16 to GPU."""
+        features, labels = load_feature_file(path)
+        # Normalize on CPU in float32 — avoids GPU float32 temp allocation
+        if self.normalize_features:
+            features = F.normalize(features.float(), dim=-1)
+        features = features.to(device=self.device, dtype=self.store_dtype,
+                               non_blocking=True)
+        labels = labels.to(device=self.device, non_blocking=True)
+        return features, labels
 
     def __iter__(self):
         file_indices = list(range(len(self.files)))
         if self.shuffle_files:
             random.shuffle(file_indices)
 
-        # Group files into GPU-sized buffers
-        buffer_files: list[int] = []
-        buffer_bytes = 0
-
-        def flush_buffer(file_list: list[int]):
-            """Load files in file_list to GPU, yield batches, free memory."""
-            if not file_list:
-                return
-
+        idx = 0
+        while idx < len(file_indices):
+            # --- Fill GPU buffer with rooms until budget is reached ---
             feat_chunks: list[Tensor] = []
             label_chunks: list[Tensor] = []
+            mem_before = self._gpu_used()
 
-            for fi in file_list:
-                features, labels = load_feature_file(self.files[fi])
-                features = features.to(device=self.device, dtype=self.store_dtype,
-                                       non_blocking=True)
-                if self.normalize_features:
-                    # normalize in float32 then cast back
-                    features = F.normalize(features.float(), dim=-1).to(self.store_dtype)
-                labels = labels.to(device=self.device, non_blocking=True)
+            while idx < len(file_indices):
+                fi = file_indices[idx]
+                features, labels = self._load_room_to_gpu(self.files[fi])
+                torch.cuda.synchronize()
+
                 feat_chunks.append(features)
                 label_chunks.append(labels)
+                idx += 1
+
+                mem_now = self._gpu_used()
+                data_loaded = mem_now - mem_before
+                if data_loaded >= self.gpu_budget_bytes:
+                    break  # buffer full
+
+            if not feat_chunks:
+                break
 
             all_features = torch.cat(feat_chunks, dim=0)
             all_labels = torch.cat(label_chunks, dim=0)
@@ -226,23 +237,6 @@ class GPUBufferedBatcher:
 
             del all_features, all_labels
             torch.cuda.empty_cache()
-
-        for fi in file_indices:
-            # Peek at file to estimate size (use disk size as proxy)
-            file_size = self.files[fi].stat().st_size
-            # Rough estimate: npz float16 expands ~1.1x; we store as store_dtype
-            est_gpu = int(file_size * 1.2)
-
-            if buffer_bytes + est_gpu > self.gpu_budget_bytes and buffer_files:
-                yield from flush_buffer(buffer_files)
-                buffer_files = []
-                buffer_bytes = 0
-
-            buffer_files.append(fi)
-            buffer_bytes += est_gpu
-
-        # Flush remaining
-        yield from flush_buffer(buffer_files)
 
 
 def parse_args() -> argparse.Namespace:
