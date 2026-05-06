@@ -45,7 +45,7 @@ training:
   loss: "mse"
   mse_weight: 1.0
   cosine_weight: 1.0
-  save_every: 5
+  save_every: 1
   save_best: true
   resume_from: null
   checkpoint_dir: "checkpoints/mlp_s3dis"
