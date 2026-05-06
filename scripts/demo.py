@@ -11,6 +11,7 @@ sys.path.append(str(Path(__file__).resolve().parent.parent))
 from src.encoder import ConcertoEncoder
 from src.translation_head import MLPTranslationHead
 import open_clip
+from src.visualize import plot_heatmap, save_figure
 
 def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device, top_percent=10.0):
     print(f'\nQuery: "{text_query}"')
@@ -32,39 +33,12 @@ def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device,
     print(f'Similarity range: {sim_min:.3f} to {sim_max:.3f}')
     print(f'Highlighting top {top_percent}% of points')
 
-    # 4. Visualise heatmap
-    threshold = np.percentile(sim_norm, 100 - top_percent)
-    highlight_mask = sim_norm >= threshold
-    print(f'Highlighted points: {highlight_mask.sum():,} / {len(coord):,}')
-
-    # Build color array: highlighted = red, rest = gray
-    heatmap_colors = np.full((len(coord), 3), 0.6)         # gray background
-    heatmap_colors[highlight_mask] = [1.0, 0.2, 0.2]       # red highlights
-
-    fig = go.Figure(data=[go.Scatter3d(
-        x=coord[:, 0],
-        y=coord[:, 1],
-        z=coord[:, 2],
-        mode='markers',
-        marker=dict(
-            size=1.5,
-            color=[f'rgb({int(r*255)},{int(g*255)},{int(b*255)})'
-                   for r, g, b in heatmap_colors],
-            opacity=0.8,
-        )
-    )])
-
-    fig.update_layout(
-        title=f'Query: "{text_query}" — top {top_percent}% matches highlighted in red',
-        scene=dict(
-            xaxis_title='X',
-            yaxis_title='Y',
-            zaxis_title='Z',
-            bgcolor='rgb(20,20,20)',
-        ),
-        paper_bgcolor='rgb(30,30,30)',
-        font_color='white',
-        height=700,
+    # 4. Visualise heatmap using src.visualize
+    fig = plot_heatmap(
+        points=coord,
+        scores=sim_norm,
+        query_text=text_query,
+        top_percent=top_percent
     )
     return fig
 
@@ -145,7 +119,7 @@ def main():
     fig = query_scene(coord, features_clip, args.query, clip_model, tokenizer, device, args.top_percent)
     
     if args.output_html:
-        fig.write_html(args.output_html)
+        save_figure(fig, args.output_html, save_png=False)
         print(f"Saved visualization to {args.output_html}")
     else:
         fig.show()
