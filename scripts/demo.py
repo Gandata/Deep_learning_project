@@ -13,14 +13,6 @@ from src.translation_head import MLPTranslationHead
 import open_clip
 from src.visualize import plot_heatmap, save_figure
 
-DEMO_QUERY_COLORSCALE = [
-    [0.00, "rgb(20,120,255)"],
-    [0.25, "rgb(110,220,255)"],
-    [0.50, "rgb(250,235,170)"],
-    [0.75, "rgb(245,125,70)"],
-    [1.00, "rgb(210,45,45)"],
-]
-
 def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device, top_percent=10.0):
     print(f'\nQuery: "{text_query}"')
 
@@ -46,10 +38,7 @@ def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device,
         points=coord,
         scores=sim_norm,
         query_text=text_query,
-        top_percent=top_percent,
-        colorscale=DEMO_QUERY_COLORSCALE,
-        show_colorbar=True,
-        reverse_colorbar=False,
+        top_percent=top_percent
     )
     return fig
 

@@ -252,8 +252,6 @@ def plot_heatmap(
     colorscale: str = "Turbo",
     top_percent: Optional[float] = None,
     low_opacity: float = 0.08,
-    show_colorbar: bool = True,
-    reverse_colorbar: bool = False,
 ) -> go.Figure:
     """
     Plot a 3D heatmap over a point cloud using continuous similarity scores (based on a specific query). 
@@ -278,14 +276,11 @@ def plot_heatmap(
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]
-    score_min = float(scores.min())
-    score_max = float(scores.max())
 
     if title is None:
         title = f'Heatmap for query: "{query_text}"'
 
     fig = go.Figure()
-    show_trace_colorbar = show_colorbar and not reverse_colorbar
 
     if top_percent is None:
         fig.add_trace(
@@ -297,15 +292,13 @@ def plot_heatmap(
                 marker=dict(
                     size=point_size,
                     color=scores,
-                    cmin=score_min,
-                    cmax=score_max,
                     colorscale=colorscale,
                     opacity=opacity,
                     colorbar=dict(
                         title="score",
                         thickness=18,
                     ),
-                    showscale=show_trace_colorbar,
+                    showscale=True,
                 ),
                 name="heatmap",
                 showlegend=False,
@@ -335,8 +328,6 @@ def plot_heatmap(
                 marker=dict(
                     size=point_size,
                     color=scores[bg_mask],
-                    cmin=score_min,
-                    cmax=score_max,
                     colorscale=colorscale,
                     opacity=low_opacity,
                     showscale=False,
@@ -362,15 +353,13 @@ def plot_heatmap(
                 marker=dict(
                     size=point_size,
                     color=scores[top_mask],
-                    cmin=score_min,
-                    cmax=score_max,
                     colorscale=colorscale,
                     opacity=opacity,
                     colorbar=dict(
                         title="score",
                         thickness=18,
                     ),
-                    showscale=show_trace_colorbar,
+                    showscale=True,
                 ),
                 name="top points",
                 showlegend=False,
@@ -380,32 +369,6 @@ def plot_heatmap(
                     "y=%{y:.3f}<br>"
                     "z=%{z:.3f}<extra></extra>"
                 ),
-            )
-        )
-
-    if show_colorbar and reverse_colorbar:
-        fig.add_trace(
-            go.Scatter3d(
-                x=[x[0], x[0]],
-                y=[y[0], y[0]],
-                z=[z[0], z[0]],
-                mode="markers",
-                marker=dict(
-                    size=0.01,
-                    color=[score_min, score_max],
-                    cmin=score_min,
-                    cmax=score_max,
-                    colorscale=colorscale,
-                    reversescale=True,
-                    opacity=0.0,
-                    colorbar=dict(
-                        title="score",
-                        thickness=18,
-                    ),
-                    showscale=True,
-                ),
-                showlegend=False,
-                hoverinfo="skip",
             )
         )
 
