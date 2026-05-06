@@ -177,88 +177,100 @@ class GPUBufferedBatcher:
         torch.cuda.synchronize()
         return torch.cuda.mem_get_info(self.device)[0]  # (free, total)
 
-    def _load_room_to_gpu(self, path: Path) -> tuple[Tensor, Tensor]:
-        """Load one .npz room, normalize on CPU, then upload float16 to GPU."""
-        features, labels = load_feature_file(path)
-        # Normalize on CPU in float32 — avoids GPU float32 temp allocation
-        if self.normalize_features:
-            features = F.normalize(features.float(), dim=-1)
-        features = features.to(device=self.device, dtype=self.store_dtype,
-                               non_blocking=True)
-        labels = labels.to(device=self.device, non_blocking=True)
-        return features, labels
-
-    def _buffer_bytes(self, feat_chunks, label_chunks) -> int:
-        """Total GPU bytes used by the current buffer chunks."""
-        total = 0
-        for t in feat_chunks:
-            total += t.nelement() * t.element_size()
-        for t in label_chunks:
-            total += t.nelement() * t.element_size()
-        return total
-
     def __iter__(self):
         file_indices = list(range(len(self.files)))
         if self.shuffle_files:
             random.shuffle(file_indices)
 
         idx = 0
+        cpu_features = None
+        cpu_labels = None
+
         while idx < len(file_indices):
-            feat_chunks: list[Tensor] = []
-            label_chunks: list[Tensor] = []
+            # 1. Determine safe allocation size based on genuinely free memory
+            torch.cuda.empty_cache()
+            free_mem = self._gpu_free()
+            # Keep 2 GB free for training (activations, etc.)
+            safe_alloc = min(self.gpu_budget_bytes, free_mem - 2 * 1024**3)
+            
+            if safe_alloc <= 0:
+                raise torch.OutOfMemoryError(
+                    f"GPU completely full; cannot allocate buffer. Free memory: {free_mem/1024**3:.2f} GB."
+                )
 
+            all_features = None
+            all_labels = None
+            max_points = 0
+            current_points = 0
+
+            # 2. Fill the pre-allocated buffer
             while idx < len(file_indices):
-                # Check: do we already have enough data?
-                if self._buffer_bytes(feat_chunks, label_chunks) >= self.gpu_budget_bytes:
-                    break
-
-                # Check: is there enough free GPU memory for another room?
-                # Keep 2 GB free for forward/backward pass, batch targets, etc.
-                free = self._gpu_free()
-                if feat_chunks and free < 2 * 1024**3:
-                    break
-
                 fi = file_indices[idx]
-                try:
-                    features, labels = self._load_room_to_gpu(self.files[fi])
-                    torch.cuda.synchronize()
-                except torch.OutOfMemoryError:
-                    torch.cuda.empty_cache()
-                    if feat_chunks:
-                        break  # flush current buffer, will retry this room
+                
+                if cpu_features is None:
+                    cpu_features, cpu_labels = load_feature_file(self.files[fi])
+                    
+                n = cpu_features.shape[0]
+                feat_dim = cpu_features.shape[1]
+                
+                # Pre-allocate GPU tensors on the first file of the chunk
+                if all_features is None:
+                    bytes_per_point = feat_dim * (2 if self.store_dtype == torch.float16 else 4) + 8
+                    max_points = safe_alloc // bytes_per_point
+                    
+                    if n > max_points:
+                        # Edge case: A single room is larger than safe_alloc. 
+                        # We must allocate exactly n points to avoid an infinite loop.
+                        max_points = n  
+                        
+                    all_features = torch.empty((max_points, feat_dim), device=self.device, dtype=self.store_dtype)
+                    all_labels = torch.empty((max_points,), device=self.device, dtype=torch.int64)
+
+                # Check if this room fits in the remaining pre-allocated space
+                if current_points + n > max_points:
+                    if current_points == 0:
+                        pass # Handled by the edge case above
                     else:
-                        raise  # single room doesn't fit — unrecoverable
+                        break # Buffer full, process what we have
 
-                feat_chunks.append(features)
-                label_chunks.append(labels)
+                # CPU processing
+                if self.normalize_features:
+                    cpu_features = F.normalize(cpu_features.float(), dim=-1)
+                
+                # Cast to float16 on CPU before transfer
+                cpu_features = cpu_features.to(self.store_dtype)
+                
+                # Direct Host-to-Device copy into the pre-allocated GPU slice (ZERO double allocation)
+                all_features[current_points:current_points+n].copy_(cpu_features, non_blocking=True)
+                all_labels[current_points:current_points+n].copy_(cpu_labels, non_blocking=True)
+                
+                current_points += n
                 idx += 1
+                cpu_features = None
+                cpu_labels = None
 
-            if not feat_chunks:
+            if current_points == 0:
                 break
+                
+            # 3. Truncate buffer to actually used size (creates a view, no memory overhead)
+            buffer_features = all_features[:current_points]
+            buffer_labels = all_labels[:current_points]
 
-            all_features = torch.cat(feat_chunks, dim=0)
-            all_labels = torch.cat(label_chunks, dim=0)
-            del feat_chunks, label_chunks
-
-            n = all_features.shape[0]
-
-            # Random-index batching: generate shuffled indices, then slice
-            # into the original tensor per-batch. This avoids the 2× peak
-            # memory cost of physically reordering the entire buffer.
+            # 4. Yield random batches via index slicing
             if self.shuffle_points:
-                order = torch.randperm(n, device=self.device)
+                order = torch.randperm(current_points, device=self.device)
             else:
-                order = torch.arange(n, device=self.device)
+                order = torch.arange(current_points, device=self.device)
 
-            for start in range(0, n, self.batch_size):
-                end = min(start + self.batch_size, n)
+            for start in range(0, current_points, self.batch_size):
+                end = min(start + self.batch_size, current_points)
                 batch_idx = order[start:end]
-                batch_features = all_features[batch_idx]
-                batch_labels = all_labels[batch_idx]
+                batch_features = buffer_features[batch_idx]
+                batch_labels = buffer_labels[batch_idx]
                 batch_targets = self.target_table[batch_labels]
                 yield batch_features, batch_targets, batch_labels
 
-            del all_features, all_labels, order
+            del all_features, all_labels, buffer_features, buffer_labels, order
             torch.cuda.empty_cache()
 
 
