@@ -278,6 +278,8 @@ def plot_heatmap(
     x = points[:, 0]
     y = points[:, 1]
     z = points[:, 2]
+    score_min = float(scores.min())
+    score_max = float(scores.max())
 
     if title is None:
         title = f'Heatmap for query: "{query_text}"'
@@ -295,6 +297,8 @@ def plot_heatmap(
                 marker=dict(
                     size=point_size,
                     color=scores,
+                    cmin=score_min,
+                    cmax=score_max,
                     colorscale=colorscale,
                     opacity=opacity,
                     colorbar=dict(
@@ -331,6 +335,8 @@ def plot_heatmap(
                 marker=dict(
                     size=point_size,
                     color=scores[bg_mask],
+                    cmin=score_min,
+                    cmax=score_max,
                     colorscale=colorscale,
                     opacity=low_opacity,
                     showscale=False,
@@ -356,6 +362,8 @@ def plot_heatmap(
                 marker=dict(
                     size=point_size,
                     color=scores[top_mask],
+                    cmin=score_min,
+                    cmax=score_max,
                     colorscale=colorscale,
                     opacity=opacity,
                     colorbar=dict(
@@ -384,9 +392,9 @@ def plot_heatmap(
                 mode="markers",
                 marker=dict(
                     size=0.01,
-                    color=[float(scores.min()), float(scores.max())],
-                    cmin=float(scores.min()),
-                    cmax=float(scores.max()),
+                    color=[score_min, score_max],
+                    cmin=score_min,
+                    cmax=score_max,
                     colorscale=colorscale,
                     reversescale=True,
                     opacity=0.0,
