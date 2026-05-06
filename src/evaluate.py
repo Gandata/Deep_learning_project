@@ -87,6 +87,12 @@ def main():
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--features_dir", type=str, default=None)
     parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=16384,
+        help="Number of points to evaluate at once on GPU.",
+    )
+    parser.add_argument(
         "--clip_model",
         type=str,
         default=None,
@@ -106,6 +112,8 @@ def main():
     )
     parser.add_argument("--device", type=str, default=None)
     args = parser.parse_args()
+    if args.batch_size <= 0:
+        raise ValueError(f"`batch_size` must be positive, got {args.batch_size}.")
 
     checkpoint_config = None
     checkpoint = None
@@ -177,23 +185,35 @@ def main():
     print(f"Normalize input features: {normalize_features}")
 
     for npz_file in feature_files:
-        data = np.load(npz_file)
-        names = list(data.keys())
-        feature_key = choose_key(FEATURE_KEYS, names, npz_file)
-        label_key = choose_key(LABEL_KEYS, names, npz_file)
-        features = torch.from_numpy(data[feature_key]).float().to(device)
-        if normalize_features:
-            features = F.normalize(features, dim=-1)
-        labels = data[label_key]
+        with np.load(npz_file) as data:
+            names = list(data.keys())
+            feature_key = choose_key(FEATURE_KEYS, names, npz_file)
+            label_key = choose_key(LABEL_KEYS, names, npz_file)
+            feature_array = data[feature_key]
+            labels = np.asarray(data[label_key]).reshape(-1)
 
-        with torch.no_grad():
-            pred_clip = model(features)
-            pred_clip = F.normalize(pred_clip, dim=-1)
-            sims = pred_clip @ clip_embeddings_torch.T
-            pred_classes = torch.argmax(sims, dim=-1).cpu().numpy()
+            pred_chunks = []
+            for start in range(0, feature_array.shape[0], args.batch_size):
+                end = min(start + args.batch_size, feature_array.shape[0])
+                features = torch.from_numpy(feature_array[start:end]).float().to(device)
+                if normalize_features:
+                    features = F.normalize(features, dim=-1)
+
+                with torch.no_grad():
+                    pred_clip = model(features)
+                    pred_clip = F.normalize(pred_clip, dim=-1)
+                    sims = pred_clip @ clip_embeddings_torch.T
+                    pred_classes = torch.argmax(sims, dim=-1).cpu().numpy()
+
+                pred_chunks.append(pred_classes)
+                del features, pred_clip, sims
+
+            pred_classes = np.concatenate(pred_chunks)
 
         all_preds.append(pred_classes)
         all_labels.append(labels)
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
         print(f"Evaluated {npz_file.name}")
 
     all_preds = np.concatenate(all_preds)
