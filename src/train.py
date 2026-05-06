@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import argparse
 import gc
-import json
-import math
 import random
 from pathlib import Path
 import sys
@@ -215,120 +213,6 @@ def collect_feature_files(path: str | Path) -> list[Path]:
     return files
 
 
-def inspection_cache_path(path: str | Path, split_name: str) -> Path:
-    path = Path(path)
-    if path.is_dir():
-        return path / f".train_inspection_cache_{split_name}.json"
-    return path.with_suffix(path.suffix + f".{split_name}.inspection_cache.json")
-
-
-def build_file_metadata(file_path: Path) -> dict[str, int | str]:
-    stat = file_path.stat()
-    return {
-        "path": str(file_path),
-        "size": int(stat.st_size),
-        "mtime_ns": int(stat.st_mtime_ns),
-    }
-
-
-def load_inspection_cache(
-    cache_path: Path,
-    files: list[Path],
-) -> tuple[list[Path], int, int] | None:
-    if not cache_path.exists():
-        return None
-
-    try:
-        payload = json.loads(cache_path.read_text(encoding="utf-8"))
-    except Exception:
-        return None
-
-    if payload.get("version") not in {1, 2}:
-        return None
-
-    cached_files = payload.get("files")
-    if not isinstance(cached_files, list) or len(cached_files) != len(files):
-        return None
-
-    current_meta = [build_file_metadata(file_path) for file_path in files]
-    for cached, current in zip(cached_files, current_meta):
-        if not isinstance(cached, dict):
-            return None
-        if (
-            cached.get("path") != current["path"]
-            or int(cached.get("size", -1)) != current["size"]
-        ):
-            return None
-
-    detected_input_dim = payload.get("detected_input_dim")
-    total_samples = payload.get("total_samples")
-    if not isinstance(detected_input_dim, int) or not isinstance(total_samples, int):
-        return None
-
-    return files, detected_input_dim, total_samples
-
-
-def save_inspection_cache(
-    cache_path: Path,
-    files: list[Path],
-    detected_input_dim: int,
-    total_samples: int,
-) -> None:
-    payload = {
-        "version": 2,
-        "detected_input_dim": int(detected_input_dim),
-        "total_samples": int(total_samples),
-        "files": [build_file_metadata(file_path) for file_path in files],
-    }
-    cache_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-
-
-def infer_room_type(path: Path) -> str:
-    parts = path.stem.split("_")
-    if len(parts) >= 4 and parts[0] == "Area":
-        room_type_parts = parts[2:-1]
-        if room_type_parts:
-            return "_".join(room_type_parts)
-    return path.stem
-
-
-def select_files_by_room_type_fraction(
-    files: list[Path],
-    fraction: float,
-    seed: int,
-    split_name: str,
-) -> list[Path]:
-    if not (0.0 < fraction <= 1.0):
-        raise ValueError(
-            f"`{split_name}_room_type_fraction` must be in (0, 1], got {fraction}."
-        )
-    if fraction >= 1.0:
-        return files
-
-    grouped: dict[str, list[Path]] = {}
-    for file_path in files:
-        grouped.setdefault(infer_room_type(file_path), []).append(file_path)
-
-    rng = random.Random(seed)
-    selected: list[Path] = []
-    print(
-        f"Selecting {fraction:.0%} of {split_name} files per room type "
-        f"(rounded up, seed={seed})"
-    )
-    for room_type in sorted(grouped):
-        room_files = sorted(grouped[room_type])
-        shuffled = room_files[:]
-        rng.shuffle(shuffled)
-        keep_count = math.ceil(len(room_files) * fraction)
-        chosen = sorted(shuffled[:keep_count])
-        selected.extend(chosen)
-        print(f"  {room_type}: keeping {len(chosen)}/{len(room_files)} files")
-
-    selected = sorted(selected)
-    print(f"Selected {len(selected)}/{len(files)} {split_name} files total")
-    return selected
-
-
 def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
     files = collect_feature_files(path)
     feature_chunks: list[Tensor] = []
@@ -355,77 +239,6 @@ def load_feature_split(path: str | Path) -> tuple[Tensor, Tensor]:
         )
 
     return torch.cat(feature_chunks, dim=0), torch.cat(label_chunks, dim=0)
-
-
-def inspect_feature_files(
-    path: str | Path,
-    split_name: str,
-    room_type_fraction: float = 1.0,
-    room_type_fraction_seed: int = 42,
-) -> tuple[list[Path], int, int]:
-    files = collect_feature_files(path)
-    files = select_files_by_room_type_fraction(
-        files,
-        fraction=room_type_fraction,
-        seed=room_type_fraction_seed,
-        split_name=split_name,
-    )
-    cache_path = inspection_cache_path(path, split_name)
-    cached = load_inspection_cache(cache_path, files)
-    if cached is not None:
-        cached_files, detected_input_dim, total_samples = cached
-        print(
-            f"Using cached {split_name} inspection: {len(cached_files)} files, "
-            f"{total_samples} samples, dim={detected_input_dim}"
-        )
-        return cached_files, detected_input_dim, total_samples
-
-    detected_input_dim: int | None = None
-    total_samples = 0
-    bad_files: list[str] = []
-
-    print(f"Inspecting {split_name} files: {len(files)} found")
-    for index, file_path in enumerate(files, start=1):
-        try:
-            features, labels = load_feature_file(file_path)
-        except Exception as error:
-            bad_files.append(f"{file_path}: {error}")
-            continue
-
-        file_dim = int(features.shape[1])
-        if detected_input_dim is None:
-            detected_input_dim = file_dim
-        elif file_dim != detected_input_dim:
-            bad_files.append(
-                f"{file_path}: feature dim {file_dim} does not match expected {detected_input_dim}"
-            )
-        total_samples += int(features.shape[0])
-        print(
-            f"  [{index}/{len(files)}] {file_path.name}: "
-            f"{features.shape[0]} samples, dim={file_dim}"
-        )
-        del features, labels
-        gc.collect()
-
-    if bad_files:
-        joined = "\n".join(bad_files[:10])
-        if len(bad_files) > 10:
-            joined += f"\n... and {len(bad_files) - 10} more"
-        raise RuntimeError(
-            f"Some {split_name} feature files are invalid or inconsistent.\n{joined}"
-        )
-
-    if detected_input_dim is None:
-        raise FileNotFoundError(f"No valid {split_name} feature files found under: {path}")
-
-    save_inspection_cache(
-        cache_path,
-        files=files,
-        detected_input_dim=detected_input_dim,
-        total_samples=total_samples,
-    )
-    print(f"Saved {split_name} inspection cache to: {cache_path}")
-    return files, detected_input_dim, total_samples
 
 
 def resolve_label_texts(config: dict[str, Any]) -> list[str]:
@@ -593,34 +406,21 @@ def main() -> None:
     print(f"Using device: {device}")
 
     target_table = build_target_table(config, device=device)
-    train_room_type_fraction = float(data_cfg.get("train_room_type_fraction", 1.0))
-    train_room_type_fraction_seed = int(
-        data_cfg.get("train_room_type_fraction_seed", training_cfg.get("seed", seed))
-    )
-    train_files, detected_input_dim, train_samples = inspect_feature_files(
-        data_cfg["train_features_path"],
-        split_name="train",
-        room_type_fraction=train_room_type_fraction,
-        room_type_fraction_seed=train_room_type_fraction_seed,
-    )
+    train_files = collect_feature_files(data_cfg["train_features_path"])
     val_path = data_cfg.get("val_features_path")
-    val_files = None
-    val_samples = 0
-    if val_path:
-        val_files, val_input_dim, val_samples = inspect_feature_files(
-            val_path,
-            split_name="val",
+    val_files = collect_feature_files(val_path) if val_path else None
+
+    configured_input_dim = config.get("model", {}).get("input_dim")
+    if configured_input_dim is None:
+        raise ValueError(
+            "Inspection is disabled, so `model.input_dim` must be set explicitly in the config."
         )
-        if int(val_input_dim) != detected_input_dim:
-            raise ValueError(
-                "Validation features do not match training feature dim: "
-                f"{val_input_dim} vs {detected_input_dim}."
-            )
+    detected_input_dim = int(configured_input_dim)
 
     model = build_model(
         config,
         target_dim=target_table.shape[1],
-        detected_input_dim=detected_input_dim,
+        detected_input_dim=None,
     ).to(device)
 
     normalize_features = data_cfg.get("normalize_features", False)
@@ -657,11 +457,9 @@ def main() -> None:
 
     num_parameters = sum(parameter.numel() for parameter in model.parameters())
     print(f"Train files:   {len(train_files)}")
-    print(f"Train samples: {train_samples}")
     if val_files is not None:
         print(f"Val files:     {len(val_files)}")
-        print(f"Val samples:   {val_samples}")
-    print(f"Feature dim:   {detected_input_dim}")
+    print(f"Feature dim:   {detected_input_dim} (from config)")
     print(f"Model params:  {num_parameters:,}")
 
     for epoch in range(start_epoch, epochs + 1):
