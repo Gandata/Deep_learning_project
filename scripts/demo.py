@@ -14,11 +14,11 @@ import open_clip
 from src.visualize import plot_heatmap, save_figure
 
 DEMO_QUERY_COLORSCALE = [
-    [0.00, "rgb(210,45,45)"],
-    [0.25, "rgb(245,125,70)"],
+    [0.00, "rgb(20,120,255)"],
+    [0.25, "rgb(110,220,255)"],
     [0.50, "rgb(250,235,170)"],
-    [0.75, "rgb(110,220,255)"],
-    [1.00, "rgb(20,120,255)"],
+    [0.75, "rgb(245,125,70)"],
+    [1.00, "rgb(210,45,45)"],
 ]
 
 def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device, top_percent=10.0):
@@ -49,7 +49,7 @@ def query_scene(coord, features_clip, text_query, clip_model, tokenizer, device,
         top_percent=top_percent,
         colorscale=DEMO_QUERY_COLORSCALE,
         show_colorbar=True,
-        reverse_colorbar=True,
+        reverse_colorbar=False,
     )
     return fig
 
