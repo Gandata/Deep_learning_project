@@ -7,6 +7,10 @@ data:
   train_room_type_fraction: 1.0
   train_room_type_fraction_seed: 42
 
+  # Inspection settings
+  inspect_files: false
+  verbose_inspection: false
+
   # Hold out 15% of rooms (stratified by room type) as validation
   val_holdout_fraction: 0.15
   val_holdout_seed: 42

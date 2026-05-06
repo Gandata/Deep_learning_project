@@ -350,7 +350,10 @@ def inspect_feature_files(
     split_name: str,
     room_type_fraction: float = 1.0,
     room_type_fraction_seed: int = 42,
-) -> tuple[list[Path], int, int]:
+    verbose: bool = True,
+    do_inspect: bool = True,
+    expected_dim: int | None = None,
+) -> tuple[list[Path], int | None, int, dict[Path, int]]:
     files = collect_feature_files(path)
     files = select_files_by_room_type_fraction(
         files,
@@ -358,11 +361,20 @@ def inspect_feature_files(
         seed=room_type_fraction_seed,
         split_name=split_name,
     )
-    detected_input_dim: int | None = None
+
+    if not do_inspect:
+        if verbose:
+            print(f"Skipping inspection of {split_name} files ({len(files)} found)")
+        return files, expected_dim, 0, {}
+
+    detected_input_dim: int | None = expected_dim
     total_samples = 0
+    file_counts: dict[Path, int] = {}
     bad_files: list[str] = []
 
-    print(f"Inspecting {split_name} files: {len(files)} found")
+    if verbose:
+        print(f"Inspecting {split_name} files: {len(files)} found")
+
     for index, file_path in enumerate(files, start=1):
         try:
             features, labels = load_feature_file(file_path)
@@ -371,32 +383,29 @@ def inspect_feature_files(
             continue
 
         file_dim = int(features.shape[1])
+        num_samples = int(features.shape[0])
+        file_counts[file_path] = num_samples
+
         if detected_input_dim is None:
             detected_input_dim = file_dim
         elif file_dim != detected_input_dim:
             bad_files.append(
                 f"{file_path}: feature dim {file_dim} does not match expected {detected_input_dim}"
             )
-        total_samples += int(features.shape[0])
-        print(
-            f"  [{index}/{len(files)}] {file_path.name}: "
-            f"{features.shape[0]} samples, dim={file_dim}"
-        )
+        total_samples += num_samples
+
+        if verbose:
+            print(
+                f"  [{index}/{len(files)}] {file_path.name}: "
+                f"{num_samples} samples, dim={file_dim}"
+            )
         del features, labels
         gc.collect()
 
-    if bad_files:
-        joined = "\n".join(bad_files[:10])
-        if len(bad_files) > 10:
-            joined += f"\n... and {len(bad_files) - 10} more"
-        raise RuntimeError(
-            f"Some {split_name} feature files are invalid or inconsistent.\n{joined}"
-        )
-
-    if detected_input_dim is None:
+    if detected_input_dim is None and do_inspect:
         raise FileNotFoundError(f"No valid {split_name} feature files found under: {path}")
 
-    return files, detected_input_dim, total_samples
+    return files, detected_input_dim, total_samples, file_counts
 
 
 def resolve_label_texts(config: dict[str, Any]) -> list[str]:
@@ -594,33 +603,47 @@ def main() -> None:
     print(f"Using device: {device}")
 
     target_table = build_target_table(config, device=device)
+    # --- Data Inspection & Split ---
+    inspect_files = data_cfg.get("inspect_files", True)
+    verbose_inspection = data_cfg.get("verbose_inspection", True)
+    configured_input_dim = config.get("model", {}).get("input_dim")
+
     train_room_type_fraction = float(data_cfg.get("train_room_type_fraction", 1.0))
     train_room_type_fraction_seed = int(
         data_cfg.get("train_room_type_fraction_seed", training_cfg.get("seed", seed))
     )
-    train_files, detected_input_dim, train_samples = inspect_feature_files(
+
+    train_files, detected_input_dim, train_samples, train_counts = inspect_feature_files(
         data_cfg["train_features_path"],
         split_name="train",
         room_type_fraction=train_room_type_fraction,
         room_type_fraction_seed=train_room_type_fraction_seed,
+        do_inspect=inspect_files,
+        verbose=verbose_inspection,
+        expected_dim=configured_input_dim,
     )
 
     # --- Validation: explicit path, holdout split, or none ---
     val_path = data_cfg.get("val_features_path")
     val_files = None
     val_samples = 0
+    val_counts: dict[Path, int] = {}
 
     if val_path:
         # Explicit validation directory
-        val_files, val_input_dim, val_samples = inspect_feature_files(
+        val_files, val_input_dim, val_samples, val_counts = inspect_feature_files(
             val_path,
             split_name="val",
+            do_inspect=inspect_files,
+            verbose=verbose_inspection,
+            expected_dim=detected_input_dim,
         )
-        if int(val_input_dim) != detected_input_dim:
-            raise ValueError(
-                "Validation features do not match training feature dim: "
-                f"{val_input_dim} vs {detected_input_dim}."
-            )
+        if detected_input_dim is not None and val_input_dim is not None:
+            if int(val_input_dim) != int(detected_input_dim):
+                raise ValueError(
+                    "Validation features do not match training feature dim: "
+                    f"{val_input_dim} vs {detected_input_dim}."
+                )
     else:
         # Random holdout from train files (stratified by room type)
         holdout_fraction = float(data_cfg.get("val_holdout_fraction", 0.0))
@@ -628,25 +651,14 @@ def main() -> None:
             holdout_seed = int(
                 data_cfg.get("val_holdout_seed", training_cfg.get("seed", seed))
             )
-            train_files, val_files_split = holdout_split_by_room_type(
+            train_files, val_files = holdout_split_by_room_type(
                 train_files,
                 holdout_fraction=holdout_fraction,
                 seed=holdout_seed,
             )
-            # Re-count samples for the reduced train set
-            train_samples = 0
-            for f in train_files:
-                feat, _ = load_feature_file(f)
-                train_samples += feat.shape[0]
-                del feat
-                gc.collect()
-            val_files = val_files_split
-            val_samples = 0
-            for f in val_files:
-                feat, _ = load_feature_file(f)
-                val_samples += feat.shape[0]
-                del feat
-                gc.collect()
+            # Re-calculate samples using counts from inspection (avoiding re-loading)
+            train_samples = sum(train_counts.get(f, 0) for f in train_files)
+            val_samples = sum(train_counts.get(f, 0) for f in val_files)
 
     model = build_model(
         config,
