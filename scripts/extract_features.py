@@ -12,7 +12,7 @@ from src.encoder import ConcertoEncoder
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Extract per-point features for S3DIS Area 5.")
+    parser = argparse.ArgumentParser(description="Extract per-point features for selected S3DIS areas.")
     parser.add_argument(
         "--data_dir",
         type=str,
@@ -22,8 +22,18 @@ def main():
     parser.add_argument(
         "--out_dir",
         type=str,
-        default="features/s3dis_area5",
-        help="Output directory for .npz feature files.",
+        default=None,
+        help=(
+            "Output directory for .npz feature files. "
+            "If omitted, a directory like `features/s3dis_area4` is derived from `--areas`."
+        ),
+    )
+    parser.add_argument(
+        "--areas",
+        type=int,
+        nargs="+",
+        default=[5],
+        help="S3DIS area ids to extract, for example `--areas 4` or `--areas 1 2 3`.",
     )
     parser.add_argument(
         "--device",
@@ -79,12 +89,21 @@ def main():
     device = torch.device(args.device) if args.device else torch.device(
         "cuda" if torch.cuda.is_available() else "cpu"
     )
-    out_dir = Path(args.out_dir)
+    area_ids = [int(area_id) for area_id in args.areas]
+    if args.out_dir:
+        out_dir = Path(args.out_dir)
+    else:
+        area_suffix = (
+            f"area{area_ids[0]}"
+            if len(area_ids) == 1
+            else "areas_" + "_".join(str(area_id) for area_id in area_ids)
+        )
+        out_dir = Path(f"features/s3dis_{area_suffix}")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Loading Area 5 from {args.data_dir}...")
+    print(f"Loading S3DIS areas {area_ids} from {args.data_dir}...")
     try:
-        dataset = S3DISDataset(root=args.data_dir, areas=[5])
+        dataset = S3DISDataset(root=args.data_dir, areas=area_ids)
     except RuntimeError as error:
         print(error)
         print("Make sure Adrian's data preprocessing is done.")
