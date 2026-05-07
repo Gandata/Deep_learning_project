@@ -2,6 +2,9 @@ import argparse
 from pathlib import Path
 import sys
 
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 import numpy as np
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -62,6 +65,17 @@ def colors_to_rgb_strings(colors: np.ndarray) -> list[str]:
     return [f"rgb({r},{g},{b})" for r, g, b in colors]
 
 
+def colors_to_rgb_array(colors: np.ndarray) -> np.ndarray:
+    colors = np.asarray(colors, dtype=np.float32)
+    if colors.ndim != 2 or colors.shape[1] != 3:
+        raise ValueError(f"`colors` must have shape (N, 3), got {colors.shape}.")
+
+    if colors.max() > 1.0:
+        colors = colors / 255.0
+
+    return np.clip(colors, 0.0, 1.0)
+
+
 def build_label_rgb(labels: np.ndarray) -> np.ndarray:
     labels = np.asarray(labels).reshape(-1)
     unique_labels = np.unique(labels.astype(int))
@@ -73,6 +87,60 @@ def build_label_rgb(labels: np.ndarray) -> np.ndarray:
         label_to_rgb[int(label)] = np.array([int(value) for value in rgb_values], dtype=np.uint8)
 
     return np.stack([label_to_rgb[int(label)] for label in labels], axis=0)
+
+
+def save_static_multiview_png(
+    points: np.ndarray,
+    raw_rgb: np.ndarray,
+    label_rgb: np.ndarray,
+    pca_rgb: np.ndarray,
+    output_path: Path,
+    title: str,
+    point_size: float,
+) -> Path:
+    views = [
+        ("Raw RGB", raw_rgb, -60, 22),
+        ("Ground-Truth Labels", label_rgb, -60, 22),
+        ("Concerto PCA", pca_rgb, -60, 22),
+        ("PCA View 2", pca_rgb, 15, 18),
+        ("PCA View 3", pca_rgb, 95, 20),
+        ("PCA Top View", pca_rgb, -90, 78),
+    ]
+
+    xyz_min = points.min(axis=0)
+    xyz_max = points.max(axis=0)
+    xyz_center = (xyz_min + xyz_max) / 2.0
+    xyz_extent = np.maximum(xyz_max - xyz_min, 1e-3)
+    radius = xyz_extent.max() / 2.0
+
+    fig = plt.figure(figsize=(18, 10), constrained_layout=True)
+    fig.suptitle(title, fontsize=18)
+
+    marker_size = max(point_size * 0.35, 0.08)
+    for index, (subplot_title, colors, azim, elev) in enumerate(views, start=1):
+        ax = fig.add_subplot(2, 3, index, projection="3d")
+        ax.scatter(
+            points[:, 0],
+            points[:, 1],
+            points[:, 2],
+            c=colors,
+            s=marker_size,
+            linewidths=0,
+            alpha=0.95,
+            depthshade=False,
+        )
+        ax.set_title(subplot_title, fontsize=13, pad=12)
+        ax.view_init(elev=elev, azim=azim)
+        ax.set_xlim(xyz_center[0] - radius, xyz_center[0] + radius)
+        ax.set_ylim(xyz_center[1] - radius, xyz_center[1] + radius)
+        ax.set_zlim(xyz_center[2] - radius, xyz_center[2] + radius)
+        ax.set_box_aspect(tuple(xyz_extent.tolist()))
+        ax.set_axis_off()
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(output_path, dpi=240, bbox_inches="tight", facecolor="white")
+    plt.close(fig)
+    return output_path
 
 
 def add_point_cloud_trace(
@@ -205,8 +273,12 @@ def main() -> None:
     pca = PCA(n_components=3, random_state=args.seed)
     pca_rgb = robust_normalize_rgb(pca.fit_transform(features))
 
-    raw_rgb_strings = colors_to_rgb_strings(colors)
-    label_rgb_strings = colors_to_rgb_strings(build_label_rgb(labels))
+    raw_rgb = colors_to_rgb_array(colors)
+    label_rgb = colors_to_rgb_array(build_label_rgb(labels))
+    pca_rgb = colors_to_rgb_array(pca_rgb)
+
+    raw_rgb_strings = colors_to_rgb_strings(raw_rgb)
+    label_rgb_strings = colors_to_rgb_strings(label_rgb)
     pca_rgb_strings = colors_to_rgb_strings(pca_rgb)
     hover_labels = np.array(
         [f"label={int(label)} ({LABEL_MAP.get(int(label), 'unknown')})" for label in labels],
@@ -277,8 +349,22 @@ def main() -> None:
         height=700,
         scale=2,
         save_html=True,
-        save_png=args.save_png,
+        save_png=False,
     )
+    if args.save_png:
+        png_path = save_static_multiview_png(
+            points=points,
+            raw_rgb=raw_rgb,
+            label_rgb=label_rgb,
+            pca_rgb=pca_rgb,
+            output_path=output_base.with_suffix(".png"),
+            title=(
+                f"{area_name}/{raw_room_name} - pre-MLP Concerto feature visualization "
+                f"({points.shape[0]:,} points)"
+            ),
+            point_size=args.point_size,
+        )
+        saved_paths["png"] = png_path
 
     explained = pca.explained_variance_ratio_
     print(f"Room file:      {room_path}")

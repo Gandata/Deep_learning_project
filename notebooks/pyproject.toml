@@ -22,6 +22,7 @@ dependencies = [
     "opencv-python",
     "trimesh",
     "gradio",
+    "matplotlib",
     "numpy==1.26.4",
     "plotly",
     "kaleido",
